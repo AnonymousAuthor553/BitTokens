@@ -22,7 +22,7 @@ Behavior:
 
 Example:
   python reorder_results_to_canonical.py \
-    --data_dir /vol/cuttlefish/users/hagp/Projects/fourier-number-embedding/test_data_2025-09-04_shuffled_correct/
+    --data_dir $PROJECT_PATH/test_data_2025-09-04_shuffled_correct/
 
 You can also restrict to specific files via --glob.
 """
@@ -33,10 +33,16 @@ import argparse
 import re
 import sys
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, List, Optional
 
+import dotenv
 import pandas as pd
 
+if True:
+    dotenv.load_dotenv()  # Load environment variables from .env file
+import os
+
+PROJECT_PATH = os.getenv("PROJECT_PATH")
 
 FILENAME_RE = re.compile(
     r"^(?P<task>[A-Za-z]+)_decimal_uniform_test_10k_shuffle_(?P<model>.+?)_re_(?P<reasoning>[A-Za-z0-9]+)\.csv$"
@@ -194,7 +200,7 @@ def main() -> None:
     parser.add_argument(
         "--data_dir",
         type=str,
-        default="/vol/cuttlefish/users/hagp/Projects/fourier-number-embedding/test_data_2025-09-04_shuffled_correct",
+        default=f"{PROJECT_PATH}/test_data_2025-09-04_shuffled_correct",
         help="Directory containing canonical and result CSV files.",
     )
     parser.add_argument(

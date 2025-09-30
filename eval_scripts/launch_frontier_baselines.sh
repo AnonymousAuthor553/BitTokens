@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+source .env
 
 REASONING_CONTROL_MODELS=(
     # "openai/gpt-5"
@@ -33,14 +34,14 @@ TASKS=(
 
 LIMIT=500
 
-DATA_BASE_PATH="/vol/cuttlefish/users/hagp/Projects/fourier-number-embedding/test_data_2025-09-04_shuffled_correct"
+DATA_BASE_PATH="$PROJECT_PATH/test_data_2025-09-04_shuffled_correct"
 FILE_SUFFIX="_decimal_uniform_test_10k_shuffle.csv"
 
-cd /vol/cuttlefish/users/hagp/Projects/fourier-number-embedding
+cd $PROJECT_PATH
 
 for model in ${OTHER_MODELS[@]}; do
     for task in ${TASKS[@]}; do
-        uv run /vol/cuttlefish/users/hagp/Projects/fourier-number-embedding/eval_scripts/openrouter_eval.py --model_name $model --input_file $DATA_BASE_PATH/$task$FILE_SUFFIX --limit $LIMIT &
+        uv run $PROJECT_PATH/eval_scripts/openrouter_eval.py --model_name $model --input_file $DATA_BASE_PATH/$task$FILE_SUFFIX --limit $LIMIT &
     done
 done
 
@@ -49,7 +50,7 @@ for model in ${REASONING_CONTROL_MODELS[@]}; do
         # for reasoning_effort in "high" "none"; do
         # for reasoning_effort in "none"; do
         for reasoning_effort in "high"; do
-            uv run /vol/cuttlefish/users/hagp/Projects/fourier-number-embedding/eval_scripts/openrouter_eval.py --model_name $model --input_file $DATA_BASE_PATH/$task$FILE_SUFFIX --reasoning_effort $reasoning_effort --limit $LIMIT --use_batch --batch_size 1 --batch_concurrency 10 &
+            uv run $PROJECT_PATH/eval_scripts/openrouter_eval.py --model_name $model --input_file $DATA_BASE_PATH/$task$FILE_SUFFIX --reasoning_effort $reasoning_effort --limit $LIMIT --use_batch --batch_size 1 --batch_concurrency 10 &
         done
     done
 done
