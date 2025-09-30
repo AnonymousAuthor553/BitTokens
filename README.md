@@ -68,3 +68,6 @@ uv run $PROJECT_PATH/train.py --load_config_from $PROJECT_PATH/configs/config_fe
 This has been tested on a `Nvidia DGX A100 80GB` GPU.
 
 The results will be stored in the folder `$PROJECT_PATH/trained`.
+
+# Frontier model analysis
+All evaluation scripts and results can be found in [frontier_model_analysis](frontier_model_analysis).
