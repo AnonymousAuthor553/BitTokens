@@ -49,8 +49,7 @@ train_config = cast(TrainArgumentParser, Namespace(**vars(base_config)))
 
 # Training data parameters
 train_set_paths_and_curriculum_types = {
-    f"{DATA_PATH}/Mean_binary_uniform_train_30M.csv.gz": (DATASET_CURRICULUM_TYPE.CURRICULUM, f"{DATA_PATH}/cache/fe_gpt2_47200109/23005655"),
-    f"{DATA_PATH}/Mean_decimal_uniform_train_30M.csv.gz": (DATASET_CURRICULUM_TYPE.ENDGAME, f"{DATA_PATH}/cache/fe_gpt2_47200109/58115172_diff"),
+    f"{DATA_PATH}/Addition_decimal_uniform_train_30M.csv.gz": (DATASET_CURRICULUM_TYPE.STANDARD, f"{DATA_PATH}/cache/fe_gpt2_47200109/21903304"),
 }
 
 train_config.train_set_paths = list(train_set_paths_and_curriculum_types.keys())
@@ -67,14 +66,13 @@ train_config.effective_batch_size = 192
 train_config.lr_scheduler_type = "cosine"
 
 # Data mixing parameters
-train_config.train_set_ratios = [1,0]
+train_config.train_set_ratios = [1,]
 train_config.num_loss_weight = 10
 train_config.train_dataset_type = "pretokenized_number"
 
 # Validation data parameters
 train_paths_metrics_dataset_types: dict[str, tuple[str, str]] = {
-    f"{DATA_PATH}/Mean_binary_uniform_val_10k.csv.gz": (MetricFunction.LOG_SMAPE, "curriculum_number"),
-    f"{DATA_PATH}/Mean_decimal_uniform_val_10k.csv.gz": (MetricFunction.LOG_SMAPE, "efficient_number_prompt"),
+    f"{DATA_PATH}/Addition_decimal_uniform_val_10k.csv.gz": (MetricFunction.LOG_SMAPE, "efficient_number_prompt"),
 }
 train_config.val_set_paths = list(train_paths_metrics_dataset_types.keys())
 train_config.val_set_metrics = [v[0] for v in train_paths_metrics_dataset_types.values()]

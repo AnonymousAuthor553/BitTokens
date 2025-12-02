@@ -47,7 +47,7 @@ train_config = cast(TrainArgumentParser, Namespace(**vars(base_config)))
 
 # Training data parameters
 train_set_paths_and_curriculum_types = {
-    f"{DATA_PATH}/Mean_decimal_uniform_train_30M.csv.gz": (DATASET_CURRICULUM_TYPE.CURRICULUM, f"{DATA_PATH}/cache/fe_gpt2_47200109/58115172_diff"),
+    f"{DATA_PATH}/Mean_decimal_uniform_train_30M.csv.gz": (DATASET_CURRICULUM_TYPE.CURRICULUM, f"{DATA_PATH}/cache/fe_gpt2_47200109/58115172"),
 }
 
 train_config.train_set_paths = list(train_set_paths_and_curriculum_types.keys())

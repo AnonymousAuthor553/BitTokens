@@ -48,15 +48,15 @@ base_config.verbose = True
 train_config = cast(TrainArgumentParser, Namespace(**vars(base_config)))
 # Training data parameters
 train_set_paths_and_curriculum_types = {
-    f"{DATA_PATH}/Addition_decimal_uniform_train_30M.csv.gz": (DATASET_CURRICULUM_TYPE.STANDARD, f"{DATA_PATH}/cache/fe_gpt2_47200109_pos/21903304"),
-    f"{DATA_PATH}/Multiplication_decimal_uniform_train_30M.csv.gz": (DATASET_CURRICULUM_TYPE.CURRICULUM, f"{DATA_PATH}/cache/fe_gpt2_47200109_pos/94881869"),
-    f"{DATA_PATH}/Division_decimal_uniform_train_30M.csv.gz": (DATASET_CURRICULUM_TYPE.CURRICULUM, f"{DATA_PATH}/cache/fe_gpt2_47200109_pos/26549495"),
-    f"{DATA_PATH}/Exponentiation_decimal_uniform_train_30M.csv.gz": (DATASET_CURRICULUM_TYPE.CURRICULUM, f"{DATA_PATH}/cache/fe_gpt2_47200109_pos/13731216"),
-    f"{DATA_PATH}/MinMax_decimal_uniform_train_30M.csv.gz": (DATASET_CURRICULUM_TYPE.STANDARD, f"{DATA_PATH}/cache/fe_gpt2_47200109_pos/21268272"),
-    f"{DATA_PATH}/Interval_decimal_uniform_train_30M.csv.gz": (DATASET_CURRICULUM_TYPE.STANDARD, f"{DATA_PATH}/cache/fe_gpt2_47200109_pos/15330129"),
-    f"{DATA_PATH}/Sorting_decimal_uniform_train_30M.csv.gz": (DATASET_CURRICULUM_TYPE.STANDARD, f"{DATA_PATH}/cache/fe_gpt2_47200109_pos/25805100"),
-    f"{DATA_PATH}/Mean_decimal_uniform_train_30M.csv.gz": (DATASET_CURRICULUM_TYPE.CURRICULUM, f"{DATA_PATH}/cache/fe_gpt2_47200109_pos/73768784"),
-    f"{DATA_PATH}/Std_decimal_uniform_train_30M.csv.gz": (DATASET_CURRICULUM_TYPE.CURRICULUM, f"{DATA_PATH}/cache/fe_gpt2_47200109_pos/69357492"),
+    f"{DATA_PATH}/Addition_decimal_uniform_train_30M.csv.gz": (DATASET_CURRICULUM_TYPE.STANDARD, f"{DATA_PATH}/cache/fe_gpt2_47200109_pos/46503288"),
+    f"{DATA_PATH}/Multiplication_decimal_uniform_train_30M.csv.gz": (DATASET_CURRICULUM_TYPE.CURRICULUM, f"{DATA_PATH}/cache/fe_gpt2_47200109_pos/4569718"),
+    f"{DATA_PATH}/Division_decimal_uniform_train_30M.csv.gz": (DATASET_CURRICULUM_TYPE.CURRICULUM, f"{DATA_PATH}/cache/fe_gpt2_47200109_pos/22397498"),
+    f"{DATA_PATH}/Exponentiation_decimal_uniform_train_30M.csv.gz": (DATASET_CURRICULUM_TYPE.CURRICULUM, f"{DATA_PATH}/cache/fe_gpt2_47200109_pos/84637502"),
+    f"{DATA_PATH}/MinMax_decimal_uniform_train_30M.csv.gz": (DATASET_CURRICULUM_TYPE.STANDARD, f"{DATA_PATH}/cache/fe_gpt2_47200109_pos/55600403"),
+    f"{DATA_PATH}/Interval_decimal_uniform_train_30M.csv.gz": (DATASET_CURRICULUM_TYPE.STANDARD, f"{DATA_PATH}/cache/fe_gpt2_47200109_pos/14453464"),
+    f"{DATA_PATH}/Sorting_decimal_uniform_train_30M.csv.gz": (DATASET_CURRICULUM_TYPE.STANDARD, f"{DATA_PATH}/cache/fe_gpt2_47200109_pos/41629249"),
+    f"{DATA_PATH}/Mean_decimal_uniform_train_30M.csv.gz": (DATASET_CURRICULUM_TYPE.CURRICULUM, f"{DATA_PATH}/cache/fe_gpt2_47200109_pos/97587995"),
+    f"{DATA_PATH}/Std_decimal_uniform_train_30M.csv.gz": (DATASET_CURRICULUM_TYPE.CURRICULUM, f"{DATA_PATH}/cache/fe_gpt2_47200109_pos/98036116"),
     f"{DATA_PATH}/000_00000_train.txt": (DATASET_CURRICULUM_TYPE.STANDARD,  f"{DATA_PATH}/cache/fe_gpt2_47200109_pos/13591814")
 }
 train_config.train_set_paths = [v for v in train_set_paths_and_curriculum_types.keys()]
@@ -79,17 +79,19 @@ train_config.device_batch_size = 48
 train_config.effective_batch_size = 192
 train_config.lr_scheduler_type = "cosine"
 
+NUMERIC_METRIC = MetricFunction.LOG_SMAPE_32
+
 # Validation data parameters
 train_paths_metrics_dataset_types: dict[str, tuple[str, str]] = {
-    f"{DATA_PATH}/Addition_decimal_uniform_val_10k.csv.gz": (MetricFunction.LOG_SMAPE, "efficient_number_prompt_pos"),
-    f"{DATA_PATH}/Multiplication_decimal_uniform_val_10k.csv.gz": (MetricFunction.LOG_SMAPE, "curriculum_number_pos"),
-    f"{DATA_PATH}/Division_decimal_uniform_val_10k.csv.gz": (MetricFunction.LOG_SMAPE, "curriculum_number_pos"),
-    f"{DATA_PATH}/Exponentiation_decimal_uniform_val_10k.csv.gz": (MetricFunction.LOG_SMAPE, "curriculum_number_pos"),
+    f"{DATA_PATH}/Addition_decimal_uniform_val_10k.csv.gz": (NUMERIC_METRIC, "efficient_number_prompt_pos"),
+    f"{DATA_PATH}/Multiplication_decimal_uniform_val_10k.csv.gz": (NUMERIC_METRIC, "curriculum_number_pos"),
+    f"{DATA_PATH}/Division_decimal_uniform_val_10k.csv.gz": (NUMERIC_METRIC, "curriculum_number_pos"),
+    f"{DATA_PATH}/Exponentiation_decimal_uniform_val_10k.csv.gz": (NUMERIC_METRIC, "curriculum_number_pos"),
     f"{DATA_PATH}/MinMax_decimal_uniform_val_10k.csv.gz": (MetricFunction.EXACT_NUMBER_ACC, "efficient_number_prompt_pos"),
     f"{DATA_PATH}/Interval_decimal_uniform_val_10k.csv.gz": (MetricFunction.NORMALIZED_QUINT_CLASS_ACC, "efficient_number_prompt_pos"),
     f"{DATA_PATH}/Sorting_decimal_uniform_val_10k.csv.gz": (MetricFunction.EXACT_NUMBER_ACC, "efficient_number_prompt_pos"),
-    f"{DATA_PATH}/Mean_decimal_uniform_val_10k.csv.gz": (MetricFunction.LOG_SMAPE, "curriculum_number_pos"),
-    f"{DATA_PATH}/Std_decimal_uniform_val_10k.csv.gz": (MetricFunction.LOG_SMAPE, "curriculum_number_pos"),
+    f"{DATA_PATH}/Mean_decimal_uniform_val_10k.csv.gz": (NUMERIC_METRIC, "curriculum_number_pos"),
+    f"{DATA_PATH}/Std_decimal_uniform_val_10k.csv.gz": (NUMERIC_METRIC, "curriculum_number_pos"),
     f"{DATA_PATH}/val_text.txt": (MetricFunction.SCALED_PPL, "pretokenized_number_pos", False)
 }
 train_config.val_set_paths = [v for v in train_paths_metrics_dataset_types.keys()]
@@ -97,6 +99,7 @@ train_config.val_set_metrics = [v[0] for v in train_paths_metrics_dataset_types.
 train_config.val_dataset_types = [v[1] for v in train_paths_metrics_dataset_types.values()]
 
 train_config.val_additional_metrics = [
+    NUMERIC_METRIC,
     MetricFunction.LOG_SMAPE,
     MetricFunction.EXACT_NUMBER_ACC,
 ]
@@ -126,15 +129,15 @@ train_config.wandb_group = "multi_task_hard_FoNE"
 eval_config = cast(EvalArgumentParser, Namespace(**vars(base_config)))
 # Evaluation data parameters
 test_paths_metrics_dataset_types_save_pred: dict[str, tuple[str, str, bool]] = {
-    f"{DATA_PATH}/Addition_decimal_uniform_test_10k.csv": (MetricFunction.LOG_SMAPE, "efficient_number_prompt_pos", True),
-    f"{DATA_PATH}/Multiplication_decimal_uniform_test_10k.csv": (MetricFunction.LOG_SMAPE, "efficient_number_prompt_pos", True),
-    f"{DATA_PATH}/Division_decimal_uniform_test_10k.csv": (MetricFunction.LOG_SMAPE, "efficient_number_prompt_pos", True),
-    f"{DATA_PATH}/Exponentiation_decimal_uniform_test_10k.csv": (MetricFunction.LOG_SMAPE, "efficient_number_prompt_pos", True),
+    f"{DATA_PATH}/Addition_decimal_uniform_test_10k.csv": (NUMERIC_METRIC, "efficient_number_prompt_pos", True),
+    f"{DATA_PATH}/Multiplication_decimal_uniform_test_10k.csv": (NUMERIC_METRIC, "efficient_number_prompt_pos", True),
+    f"{DATA_PATH}/Division_decimal_uniform_test_10k.csv": (NUMERIC_METRIC, "efficient_number_prompt_pos", True),
+    f"{DATA_PATH}/Exponentiation_decimal_uniform_test_10k.csv": (NUMERIC_METRIC, "efficient_number_prompt_pos", True),
     f"{DATA_PATH}/MinMax_decimal_uniform_test_10k.csv": (MetricFunction.EXACT_NUMBER_ACC, "efficient_number_prompt_pos", True),
     f"{DATA_PATH}/Interval_decimal_uniform_test_10k.csv": (MetricFunction.NORMALIZED_QUINT_CLASS_ACC, "efficient_number_prompt_pos", True),
     f"{DATA_PATH}/Sorting_decimal_uniform_test_10k.csv": (MetricFunction.EXACT_NUMBER_ACC, "efficient_number_prompt_pos", True),
-    f"{DATA_PATH}/Mean_decimal_uniform_test_10k.csv": (MetricFunction.LOG_SMAPE, "efficient_number_prompt_pos", True),
-    f"{DATA_PATH}/Std_decimal_uniform_test_10k.csv": (MetricFunction.LOG_SMAPE, "efficient_number_prompt_pos", True),
+    f"{DATA_PATH}/Mean_decimal_uniform_test_10k.csv": (NUMERIC_METRIC, "efficient_number_prompt_pos", True),
+    f"{DATA_PATH}/Std_decimal_uniform_test_10k.csv": (NUMERIC_METRIC, "efficient_number_prompt_pos", True),
     f"{DATA_PATH}/val_text.txt": (MetricFunction.SCALED_PPL, "pretokenized_number_pos", False)
 }
 eval_config.test_set_paths = list(test_paths_metrics_dataset_types_save_pred.keys())
@@ -143,6 +146,7 @@ eval_config.test_dataset_types = [v[1] for v in test_paths_metrics_dataset_types
 eval_config.save_testset_predictions = [v[2] for v in test_paths_metrics_dataset_types_save_pred.values()]
 
 eval_config.additional_metrics = [
+    NUMERIC_METRIC,
     MetricFunction.LOG_SMAPE,
     MetricFunction.EXACT_NUMBER_ACC,
 ]

@@ -97,7 +97,7 @@ train_config.val_additional_metrics = [
     MetricFunction.EXACT_NUMBER_ACC,
 ]
 # Training hyperparameters
-train_config.save_dir = f"{PROJECT_PATH}/trained/multiTask/sd"
+train_config.save_dir = f"{PROJECT_PATH}/trained/multiTask_hard/sd"
 train_config.train_token_budget = 10_000_000_000
 train_config.num_warmup_tokens = train_config.train_token_budget//10
 # train_config.eval_every_k_tokens = 800*64*1024
@@ -113,7 +113,7 @@ train_config.grad_clip = -1
 
 # WandB parameters
 train_config.wandb_project = "STEM"
-train_config.wandb_group = "multi_task_sd"
+train_config.wandb_group = "multi_task_hard_sd"
 
 
 

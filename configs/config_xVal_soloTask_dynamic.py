@@ -55,7 +55,7 @@ match TASK:
             f"{DATA_PATH}/Addition_decimal_uniform_train_30M.csv.gz": (DATASET_CURRICULUM_TYPE.STANDARD, f"{DATA_PATH}/cache/fe_gpt2_47200109/21903304"),
         }
         val_paths_metrics_dataset_types = {
-            f"{DATA_PATH}/Addition_decimal_uniform_val_10k.csv.gz": (MetricFunction.LOG_SMAPE, "efficient_number_prompt_pos"),
+            f"{DATA_PATH}/Addition_decimal_uniform_val_10k.csv.gz": (MetricFunction.LOG_SMAPE, "efficient_number_prompt"),
         }
     case Task.MULTIPLICATION:
         train_set_paths_and_curriculum_types = {
@@ -63,41 +63,55 @@ match TASK:
 
         }
         val_paths_metrics_dataset_types = {
-                f"{DATA_PATH}/Multiplication_decimal_uniform_val_10k.csv.gz": (MetricFunction.LOG_SMAPE, "curriculum_number_pos"),
+                f"{DATA_PATH}/Multiplication_decimal_uniform_val_10k.csv.gz": (MetricFunction.LOG_SMAPE, "curriculum_number"),
         }
     case Task.DIVISION:
         train_set_paths_and_curriculum_types = {
             f"{DATA_PATH}/Division_decimal_uniform_train_30M.csv.gz": (DATASET_CURRICULUM_TYPE.CURRICULUM, f"{DATA_PATH}/cache/fe_gpt2_47200109/26549495_diff"),
         }
         val_paths_metrics_dataset_types = {
-            f"{DATA_PATH}/Division_decimal_uniform_val_10k.csv.gz": (MetricFunction.LOG_SMAPE, "curriculum_number_pos"),
+            f"{DATA_PATH}/Division_decimal_uniform_val_10k.csv.gz": (MetricFunction.LOG_SMAPE, "curriculum_number"),
         }
     case Task.MIN_MAX:
         train_set_paths_and_curriculum_types = {
             f"{DATA_PATH}/MinMax_decimal_uniform_train_30M.csv.gz": (DATASET_CURRICULUM_TYPE.STANDARD, f"{DATA_PATH}/cache/fe_gpt2_47200109/21268272"),
         }
         val_paths_metrics_dataset_types = {
-            f"{DATA_PATH}/MinMax_decimal_uniform_val_10k.csv.gz": (MetricFunction.EXACT_NUMBER_ACC, "efficient_number_prompt_pos"),
+            f"{DATA_PATH}/MinMax_decimal_uniform_val_10k.csv.gz": (MetricFunction.EXACT_NUMBER_ACC, "efficient_number_prompt"),
         }
     case Task.INTERVAL:
         train_set_paths_and_curriculum_types = {
             f"{DATA_PATH}/Interval_decimal_uniform_train_30M.csv.gz": (DATASET_CURRICULUM_TYPE.STANDARD, f"{DATA_PATH}/cache/fe_gpt2_47200109/15330129"),        }
         val_paths_metrics_dataset_types = {
-            f"{DATA_PATH}/Interval_decimal_uniform_val_10k.csv.gz": (MetricFunction.NORMALIZED_QUINT_CLASS_ACC, "efficient_number_prompt_pos"),
+            f"{DATA_PATH}/Interval_decimal_uniform_val_10k.csv.gz": (MetricFunction.NORMALIZED_QUINT_CLASS_ACC, "efficient_number_prompt"),
         }
     case Task.SORTING:
         train_set_paths_and_curriculum_types = {
             f"{DATA_PATH}/Sorting_decimal_uniform_train_30M.csv.gz": (DATASET_CURRICULUM_TYPE.STANDARD, f"{DATA_PATH}/cache/fe_gpt2_47200109/25805100"),
         }
         val_paths_metrics_dataset_types = {
-            f"{DATA_PATH}/Sorting_decimal_uniform_val_10k.csv.gz": (MetricFunction.EXACT_NUMBER_ACC, "efficient_number_prompt_pos"),
+            f"{DATA_PATH}/Sorting_decimal_uniform_val_10k.csv.gz": (MetricFunction.EXACT_NUMBER_ACC, "efficient_number_prompt"),
+        }
+    case Task.MEAN:
+        train_set_paths_and_curriculum_types = {
+            f"{DATA_PATH}/Mean_decimal_uniform_train_30M.csv.gz": (DATASET_CURRICULUM_TYPE.CURRICULUM, f"{DATA_PATH}/cache/fe_gpt2_47200109/58115172_diff")
+        }
+        val_paths_metrics_dataset_types = {
+            f"{DATA_PATH}/Mean_decimal_uniform_val_10k.csv.gz": (MetricFunction.LOG_SMAPE, "curriculum_number")
+        }
+    case Task.STD:
+        train_set_paths_and_curriculum_types = {
+            f"{DATA_PATH}/Std_decimal_uniform_train_30M.csv.gz": (DATASET_CURRICULUM_TYPE.CURRICULUM, f"{DATA_PATH}/cache/fe_gpt2_47200109/69357492")
+        }
+        val_paths_metrics_dataset_types = {
+            f"{DATA_PATH}/Std_decimal_uniform_val_10k.csv.gz": (MetricFunction.LOG_SMAPE, "curriculum_number")
         }
     case Task.TEXT:
         train_set_paths_and_curriculum_types = {
             f"{DATA_PATH}/000_00000_train.txt": (DATASET_CURRICULUM_TYPE.STANDARD,  f"{DATA_PATH}/cache/fe_gpt2_47200109/13591814")
         }
         val_paths_metrics_dataset_types = {
-            f"{DATA_PATH}/val_text.txt": (MetricFunction.SCALED_PPL_HARD, "pretokenized_number_pos", False)
+            f"{DATA_PATH}/val_text.txt": (MetricFunction.SCALED_PPL_HARD, "pretokenized_number", False)
         }
     case _:
         raise ValueError(f"Unknown TASK: {TASK}")
@@ -121,7 +135,7 @@ TASK_RATIO = 1
 NUM_TASKS = len([d for d in train_config.train_dataset_curriculum_types if d != DATASET_CURRICULUM_TYPE.ENDGAME])
 train_config.train_set_ratios = [TASK_RATIO / NUM_TASKS if d != DATASET_CURRICULUM_TYPE.ENDGAME else 0 for d in train_config.train_dataset_curriculum_types]
 train_config.num_loss_weight = 10
-train_config.train_dataset_type = "pretokenized_number_pos"
+train_config.train_dataset_type = "pretokenized_number"
 
 # Validation data parameters
 train_config.val_set_paths = list(val_paths_metrics_dataset_types.keys())
@@ -156,9 +170,30 @@ train_config.wandb_group = "soloTask_xVal"
 ############################################
 # Add evaluation configuration if needed, similar to the reference
 eval_config = cast(EvalArgumentParser, Namespace(**vars(base_config)))
-test_paths_metrics_dataset_types_save_pred: dict[str, tuple[str, str, bool]] = {
-    f"{DATA_PATH}/Multiplication_decimal_uniform_test_10k.csv": (MetricFunction.LOG_SMAPE, "efficient_number_prompt_pos", True),
-}
+test_paths_metrics_dataset_types_save_pred: dict[str, tuple[str, str, bool]]
+match TASK:
+    case Task.ADDITION:
+        test_paths_metrics_dataset_types_save_pred = {f"{DATA_PATH}/Addition_decimal_uniform_test_10k.csv": (MetricFunction.LOG_SMAPE, "efficient_number_prompt", True)}
+    case Task.MULTIPLICATION:
+        test_paths_metrics_dataset_types_save_pred = {f"{DATA_PATH}/Multiplication_decimal_uniform_test_10k.csv": (MetricFunction.LOG_SMAPE, "efficient_number_prompt", True)}
+    case Task.DIVISION:
+        test_paths_metrics_dataset_types_save_pred = {f"{DATA_PATH}/Division_decimal_uniform_test_10k.csv": (MetricFunction.LOG_SMAPE, "efficient_number_prompt", True)}
+    case Task.EXPONENTIATION:
+        test_paths_metrics_dataset_types_save_pred = {f"{DATA_PATH}/Exponentation_decimal_uniform_test_10k.csv": (MetricFunction.LOG_SMAPE, "efficient_number_prompt", True)}
+    case Task.MIN_MAX:
+        test_paths_metrics_dataset_types_save_pred = {f"{DATA_PATH}/MinMax_decimal_uniform_test_10k.csv": (MetricFunction.EXACT_NUMBER_ACC, "efficient_number_prompt", True)}
+    case Task.INTERVAL:
+        test_paths_metrics_dataset_types_save_pred = {f"{DATA_PATH}/Interval_decimal_uniform_test_10k.csv": (MetricFunction.NORMALIZED_QUINT_CLASS_ACC, "efficient_number_prompt", True)}
+    case Task.SORTING:
+        test_paths_metrics_dataset_types_save_pred = {f"{DATA_PATH}/Sorting_decimal_uniform_test_10k.csv": (MetricFunction.EXACT_NUMBER_ACC, "efficient_number_prompt", True)}
+    case Task.MEAN:
+        test_paths_metrics_dataset_types_save_pred = {f"{DATA_PATH}/Mean_decimal_uniform_test_10k.csv": (MetricFunction.LOG_SMAPE, "efficient_number_prompt", True)}
+    case Task.STD:
+        test_paths_metrics_dataset_types_save_pred = {f"{DATA_PATH}/Std_decimal_uniform_test_10k.csv": (MetricFunction.LOG_SMAPE, "efficient_number_prompt", True)}
+    case Task.TEXT:
+        test_paths_metrics_dataset_types_save_pred = {f"{DATA_PATH}/val_text.txt": (MetricFunction.SCALED_PPL_HARD, "pretokenized_number", False)}
+    case _:
+        raise NotImplementedError()
 eval_config.test_set_paths = list(test_paths_metrics_dataset_types_save_pred.keys())
 eval_config.test_set_metrics = [v[0] for v in test_paths_metrics_dataset_types_save_pred.values()]
 eval_config.test_dataset_types = [v[1] for v in test_paths_metrics_dataset_types_save_pred.values()]

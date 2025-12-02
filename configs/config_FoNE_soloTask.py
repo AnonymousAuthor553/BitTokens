@@ -53,7 +53,7 @@ train_set_paths_and_curriculum_types = {
 
 train_config.train_set_paths = list(train_set_paths_and_curriculum_types.keys())
 train_config.train_dataset_curriculum_types = [v[0] for v in train_set_paths_and_curriculum_types.values()]
-train_config.train_cache_paths = [v[1] for v in train_set_paths_and_curriculum_types.values()]
+# train_config.train_cache_paths = [v[1] for v in train_set_paths_and_curriculum_types.values()]
 
 train_config.use_curriculum = True
 train_config.optimize_last = True

@@ -20,13 +20,18 @@ DATA_PATH = os.getenv("DATA_PATH")
 base_config: BaseArgumentParser = Namespace()
 
 # Model architecture parameters
-base_config.tokenizer_dir = f"{PROJECT_PATH}/tokenizers/num_text/base10_gpt2"
+base_config.tokenizer_dir = f"{PROJECT_PATH}/tokenizers/num_text/fe_gpt2"
 base_config.model = "rope_stem"
 base_config.num_embedding_type = "base10"
-base_config.normalize_num_embedding = True
+base_config.normalize_num_embedding = False
 base_config.add_reciprocal = False
-base_config.combine_strategy = "prod"
+base_config.combine_strategy = "zero_pad"
 base_config.num_loss_type = "cs"
+
+base_config.dropout = 0
+base_config.n_embd = 768
+base_config.n_head = 6
+base_config.n_layer = 6
 
 # Dataset and caching parameters
 base_config.cache_base_path = f"{DATA_PATH}/cache"
@@ -98,7 +103,7 @@ train_config.wandb_group = "solo_task_base10"
 # Add evaluation configuration if needed, similar to the reference
 eval_config = cast(EvalArgumentParser, Namespace(**vars(base_config)))
 test_paths_metrics_dataset_types_save_pred: dict[str, tuple[str, str, bool]] = {
-    f"{DATA_PATH}/Multiplication_f64_test_10k.csv": (MetricFunction.LOG_SMAPE, "efficient_number_prompt", True),
+    f"{DATA_PATH}/val_text.txt": (MetricFunction.SCALED_PPL_HARD, "pretokenized_number", False)
 }
 eval_config.test_set_paths = list(test_paths_metrics_dataset_types_save_pred.keys())
 eval_config.test_set_metrics = [v[0] for v in test_paths_metrics_dataset_types_save_pred.values()]
@@ -108,6 +113,4 @@ eval_config.save_testset_predictions = [v[2] for v in test_paths_metrics_dataset
 eval_config.additional_metrics = [
     MetricFunction.LOG_SMAPE,
     MetricFunction.EXACT_NUMBER_ACC,
-    MetricFunction.SIG_BITS_ACC,
-    MetricFunction.LOG_SMAPE_BASE2
 ]
