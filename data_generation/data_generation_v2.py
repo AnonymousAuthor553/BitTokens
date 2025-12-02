@@ -42,6 +42,7 @@ parser.add_argument("--max_exponent", type=int, default=15, help="Maximum expone
 parser.add_argument("--min_number", type=float, default=1e-14, help="Minimum absolute number allowed to generate. All numbers are guaranteed to be within [min_number, max_number). Default is 1/1000.")
 parser.add_argument("--max_number", type=int, default=1e15, help="Maximum absolute number allowed to generate. All numbers are guaranteed to be within [min_number, max_number). Default is 1000.")
 parser.add_argument("--significant_bits", type=int, default=53, help="Number of significant bits (base 2) to use for floating point numbers. Default is 53 (double precision).")
+parser.add_argument("--significant_bits", choices=[53, 24, 11], type=int, default=53, help="Number of significant bits (base 2) to use for floating point numbers. Default is 53 (double precision).")
 parser.add_argument("--significant_digits_distribution", type=SignificantDigitsDistribution, default=SignificantDigitsDistribution.DECIMAL_UNIFORM, help="Distribution of significant digits for the numbers. 'uniform' means all digits are equally likely, 'triangular' means more digits are more likely, 'full' means all digits are used.")
 
 parser.add_argument("--initial_num_samples", type=int, default=20, help="Initial number of samples to generate for estimating yield. Default is 20.")

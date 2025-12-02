@@ -3,6 +3,7 @@ import subprocess
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from typing import Literal
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -67,7 +68,7 @@ class Generation_settings:
     number_of_total_digits: int
     min_number_exponent: int
     max_number_exponent: int
-    significant_bits: int
+    significant_bits: Literal[53, 24, 11]
     significant_digits_distribution: SignificantDigitsDistribution
 
     def __init__(self, args):
@@ -209,6 +210,7 @@ def plot_data_distribution(data: pl.DataFrame, x_col: str, y_col: str, save_path
     plt.tight_layout()
     plt.savefig(save_path, bbox_inches='tight')
     plt.close()
+    print(f"Saved distribution plot to {save_path}.")
 
 def plot_accuracy_distribution(data: pd.DataFrame, x_col: str, y_col: str, acc_col: str, save_path: Path, title="Accuracy Distribution"):
     """

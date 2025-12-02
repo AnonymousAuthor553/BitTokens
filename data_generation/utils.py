@@ -905,11 +905,11 @@ def generate_quotient_with_precision(exp_range: tuple[float, float], quotient_si
         quotient_base_10_str = float_to_str(quotient)
         quotient_base_10_str = round_decimal_str_to_significant_digits(quotient_base_10_str, quotient_sig_bits)
         quotient = float(quotient_base_10_str)
-        quotient_base2_str, quotient_fXX = get_rounded_base2_expansion_of_float(quotient, 54)
+        quotient_base2_str, _ = get_rounded_base2_expansion_of_float(quotient, gs.significant_bits)
     else:
-        quotient_base2_str, quotient_fXX = get_rounded_base2_expansion_of_float(quotient, quotient_sig_bits)
+        quotient_base2_str, quotient = get_rounded_base2_expansion_of_float(quotient, quotient_sig_bits)
     
-    return quotient_base2_str, quotient_fXX
+    return quotient_base2_str, quotient
 
 def generate_divisor_for_quotient(quotient_fXX: float, exp2: int, divisor_sig_bits: int, gs: Generation_settings, precision: int) -> tuple[str, float, str]:
     """Generate a divisor that will produce the target quotient.
@@ -934,12 +934,12 @@ def generate_divisor_for_quotient(quotient_fXX: float, exp2: int, divisor_sig_bi
         num2_base_10_str = float_to_str(num2)
         num2_base_10_str = round_decimal_str_to_significant_digits(num2_base_10_str, divisor_sig_bits)
         num2 = float(num2_base_10_str)
-        num2_base2_str, num2_fXX = get_rounded_base2_expansion_of_float(num2, precision)
+        num2_base2_str, _ = get_rounded_base2_expansion_of_float(num2, precision)
     else:
-        num2_base2_str, num2_fXX = get_rounded_base2_expansion_of_float(num2, divisor_sig_bits)
-        num2_base_10_str = float_to_str(num2_fXX)
+        num2_base2_str, num2 = get_rounded_base2_expansion_of_float(num2, divisor_sig_bits)
+        num2_base_10_str = float_to_str(num2)
     
-    return num2_base2_str, num2_fXX, num2_base_10_str
+    return num2_base2_str, num2, num2_base_10_str
 
 def compute_dividend_from_quotient_divisor(quotient_fXX: float, num2_fXX: float, exp1: int, gs: Generation_settings) -> tuple[bool, float, str, str]:
     """Compute dividend from quotient and divisor, validate it's within bounds.
@@ -955,6 +955,15 @@ def compute_dividend_from_quotient_divisor(quotient_fXX: float, num2_fXX: float,
     """
     try:
         num1_fXX = quotient_fXX * num2_fXX
+
+        if gs.significant_digits_distribution == SignificantDigitsDistribution.DECIMAL_UNIFORM:
+            num1_base_10_str = float_to_str(num1_fXX)
+            num1_base_10_str = round_decimal_str_to_significant_digits(num1_base_10_str, gs.significant_digits)
+            num1_fXX = float(num1_base_10_str)
+            num1_base2_str, _ = get_rounded_base2_expansion_of_float(num1_fXX, gs.significant_bits)
+        else:
+            num1_base2_str, num1_fXX = get_rounded_base2_expansion_of_float(num1_fXX, gs.significant_bits)
+            num1_base_10_str = float_to_str(num1_fXX)
         
         # Check if dividend is within global bounds (should be guaranteed with [-15,15] range)
         if not (1e-15 <= abs(num1_fXX) <= 1e15):
@@ -968,8 +977,8 @@ def compute_dividend_from_quotient_divisor(quotient_fXX: float, num2_fXX: float,
         if not (min_number1 <= abs(num1_fXX) < max_number1):
             return False, num1_fXX, "", ""
         
-        num1_base2_str, num1_fXX = get_rounded_base2_expansion_of_float(num1_fXX, 54)
-        num1_base_10_str = float_to_str(num1_fXX)
+        # num1_base2_str, num1_fXX = get_rounded_base2_expansion_of_float(num1_fXX, gs.significant_bits)
+        # num1_base_10_str = float_to_str(num1_fXX)
         
         return True, num1_fXX, num1_base2_str, num1_base_10_str
         

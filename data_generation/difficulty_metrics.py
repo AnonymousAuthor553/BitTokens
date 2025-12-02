@@ -16,7 +16,7 @@ def _difficulty_to_int(number_str: str) -> int:
     Returns:
         int: Number of non zero digits
     """
-    return sum(1 for c in number_str.upper() if (c.isdigit() and c != '0') or c.isalpha())
+    return max(1,sum(1 for c in number_str.upper() if (c.isdigit() and c != '0') or c.isalpha()))
 
 def multiplication_difficulty_score(*numbers: str) -> int:
     """
@@ -323,3 +323,80 @@ def exponentiation_difficulty_score(base: str, exponent: str, result: str, dampe
     # Combine all factors
     total_score = base_complexity * exponent_complexity * result_complexity
     return round(total_score**dampening)
+
+def _find_common_prefix(operands: list[str], preserve_magnitude: bool = False) -> tuple[str, list[str]]:
+    """
+    Find the common prefix across all operands and return the meaningful suffixes.
+    
+    Args:
+        operands: List of number strings
+        preserve_magnitude: If True, preserve the magnitude of suffixes for floating point numbers
+        
+    Returns:
+        tuple: (common_prefix, list_of_suffixes)
+    """
+    if len(operands) <= 1:
+        return "", operands
+    
+    # Normalize numbers to same decimal places (but don't align integers for this use case)
+    normalized_operands = _normalize_numbers(operands, align_integers=False)
+    
+    # Find common prefix character by character
+    if not normalized_operands:
+        return "", []
+    
+    min_length = min(len(op) for op in normalized_operands)
+    common_prefix = ""
+    
+    for i in range(min_length):
+        char = normalized_operands[0][i]
+        if all(op[i] == char for op in normalized_operands):
+            common_prefix += char
+        else:
+            break
+    
+    # Extract meaningful suffixes
+    suffixes = []
+    for op in normalized_operands:
+        suffix = op[len(common_prefix):]
+        
+        if preserve_magnitude and '.' in common_prefix:
+            # For floating point numbers, preserve magnitude by calculating the decimal position
+            # Count digits after decimal point in common prefix
+            decimal_pos_in_prefix = common_prefix.find('.')
+            if decimal_pos_in_prefix != -1:
+                digits_after_decimal_in_prefix = len(common_prefix) - decimal_pos_in_prefix - 1
+                
+                # Create suffix with proper magnitude
+                if suffix:
+                    # Remove leading zeros but preserve the decimal positioning
+                    suffix_clean = suffix.lstrip('0') or '0'
+                    # Calculate the magnitude: 10^(-digits_after_decimal_in_prefix - leading_zeros_removed)
+                    leading_zeros_removed = len(suffix) - len(suffix_clean)
+                    
+                    # Format as decimal with proper magnitude
+                    if suffix_clean == '0':
+                        magnitude_suffix = '0'
+                    else:
+                        magnitude_suffix = f"0.{'0' * (digits_after_decimal_in_prefix + leading_zeros_removed)}{suffix_clean}"
+                else:
+                    magnitude_suffix = '0'
+                
+                suffixes.append(magnitude_suffix)
+            else:
+                # No decimal in prefix, treat as regular suffix
+                suffix = suffix.lstrip('0') or '0'
+                suffixes.append(suffix)
+        else:
+            # Remove leading zeros but keep at least one digit
+            suffix = suffix.lstrip('0') or '0'
+            suffixes.append(suffix)
+    
+    return common_prefix, suffixes
+
+def mean_difficulty_metric(operands: list[str], base=10):
+    common_prefix, suffixes = _find_common_prefix(operands, preserve_magnitude=False)
+    list_len_reciprocal = 1 / len(operands)
+    list_len_reciprocal_base_string = str(list_len_reciprocal) if base == 10 else get_rounded_base2_expansion_of_float(list_len_reciprocal, 54)[0]
+    sum_significant_digits = sum(_difficulty_to_int(suffix) for suffix in suffixes + [list_len_reciprocal_base_string])
+    return sum_significant_digits

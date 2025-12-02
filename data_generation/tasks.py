@@ -2,7 +2,7 @@ import math
 from functools import partial
 from multiprocessing.pool import Pool
 from random import randint, uniform
-from typing import Generator
+from typing import Generator, Literal
 
 import numpy as np
 
@@ -15,6 +15,7 @@ from data_generation.data_gen_utils import (
 from data_generation.difficulty_metrics import (
     addition_difficulty_score,
     exponentiation_difficulty_score,
+    mean_difficulty_metric,
     min_max_difficulty_score,
     multiplication_difficulty_score,
     sorting_difficulty_score,
@@ -35,7 +36,13 @@ from data_generation.utils import (
 def wrapper(func, args):
     return func(*args)
 
-def generate_floatXX_multiplication(exp1: int, exp2: int, gs: Generation_settings, N: int, sig_bits: int, precision: int=54, allow_negative=True, mode: Task = Task.MULTIPLICATION) -> list[dict]:
+computation_dtype = {
+    53: np.float64,
+    24: np.float32,
+    11: np.float16,
+}
+
+def generate_floatXX_multiplication(exp1: int, exp2: int, gs: Generation_settings, N: int, sig_bits: int, precision: Literal[53, 24, 11]=53, allow_negative=True, mode: Task = Task.MULTIPLICATION) -> list[dict]:
     """
     Generate multiplication task data.
     Args:
@@ -108,10 +115,14 @@ def generate_floatXX_multiplication(exp1: int, exp2: int, gs: Generation_setting
                 num1_base_10_str = float_to_str(num1_fXX)
                 num2_base_10_str = float_to_str(num2_fXX)
 
-            product = num1_fXX * num2_fXX
+            product = (np.array(num1_fXX, dtype=computation_dtype[precision]) * np.array(num2_fXX, dtype=computation_dtype[precision])).item()
             if gs.significant_digits_distribution == SignificantDigitsDistribution.DECIMAL_UNIFORM:
                 m = (int(math.floor(math.log10(abs(product)))) if product != 0 else 0)+1
                 product=round(product, gs.significant_digits-m)
+                product_base2_str, _ = get_rounded_base2_expansion_of_float(product, gs.significant_bits)
+            else:
+                product_base2_str, product = get_rounded_base2_expansion_of_float(product, gs.significant_bits)
+            product_base_10_str = float_to_str(product)
             if gs.min_number <= abs(product) <= gs.max_number:
                 break
             if j == 99:
@@ -125,9 +136,6 @@ def generate_floatXX_multiplication(exp1: int, exp2: int, gs: Generation_setting
         else:
             num1_exp, num2_exp = exp1, exp2
             
-        product_base2_str, product_fXX = get_rounded_base2_expansion_of_float(product, gs.significant_bits)
-        product_base_10_str = float_to_str(product_fXX)
-
         if mode == Task.MULTIPLICATION:
             rows.append({
                 "num1": num1_base_10_str,
@@ -141,7 +149,7 @@ def generate_floatXX_multiplication(exp1: int, exp2: int, gs: Generation_setting
                 "product_significant_digits_base_2": get_number_of_significant_digits(product_base2_str),
                 "num1_exp": num1_exp,
                 "num2_exp": num2_exp,
-                "difficulty": min(60, multiplication_difficulty_score(num1_base2_str, num2_base2_str)),
+                "difficulty": min(60 if precision==53 else 32, multiplication_difficulty_score(num1_base2_str, num2_base2_str)),
                 "difficulty_sd": min(32, multiplication_difficulty_score(num1_base_10_str, num2_base_10_str)),
             })
         elif mode == Task.DIVM:
@@ -161,14 +169,14 @@ def generate_floatXX_multiplication(exp1: int, exp2: int, gs: Generation_setting
                 "product_significant_digits_base_2": get_number_of_significant_digits(product_base2_str),
                 "num1_exp": num1_exp,
                 "num2_exp": -num2_exp,
-                "difficulty": min(60, multiplication_difficulty_score(num1_base2_str, num2_base2_str)),
-                "difficulty2": min(60, multiplication_difficulty_score(num1_base2_str, num2_reciprocal_base2_str)),
+                "difficulty": min(60 if precision==53 else 32, multiplication_difficulty_score(num1_base2_str, num2_reciprocal_base2_str)),
+                # "difficulty2": min(60, multiplication_difficulty_score(num1_base2_str, num2_reciprocal_base2_str)),
                 "difficulty_sd": min(32, multiplication_difficulty_score(num1_base_10_str, num2_base_10_str)),
             })
 
     return rows
 
-def generate_floatXX_division(exp1: int, exp2: int, gs: Generation_settings, N: int, sig_bits: int, precision: int=54, allow_negative=True) -> list[dict]:
+def generate_floatXX_division(exp1: int, exp2: int, gs: Generation_settings, N: int, sig_bits: int, precision: Literal[53, 24, 11]=53, allow_negative=True) -> list[dict]:
     """
     Generate division task data with controlled quotient precision.
     
@@ -253,24 +261,28 @@ def generate_floatXX_division(exp1: int, exp2: int, gs: Generation_settings, N: 
                 if sign_case == 2:
                     num1_fXX = -num1_fXX
                     num1_base_10_str = float_to_str(num1_fXX)
-                    num1_base2_str, num1_fXX = get_rounded_base2_expansion_of_float(num1_fXX, precision)
+                    num1_base2_str, _ = get_rounded_base2_expansion_of_float(num1_fXX, precision)
                 elif sign_case == 3:
                     num2_fXX = -num2_fXX
                     num2_base_10_str = float_to_str(num2_fXX)
-                    num2_base2_str, num2_fXX = get_rounded_base2_expansion_of_float(num2_fXX, precision)
+                    num2_base2_str, _ = get_rounded_base2_expansion_of_float(num2_fXX, precision)
                 elif sign_case == 4:
                     num1_fXX = -num1_fXX
                     num2_fXX = -num2_fXX
                     num1_base_10_str = float_to_str(num1_fXX)
                     num2_base_10_str = float_to_str(num2_fXX)
-                    num1_base2_str, num1_fXX = get_rounded_base2_expansion_of_float(num1_fXX, precision)
-                    num2_base2_str, num2_fXX = get_rounded_base2_expansion_of_float(num2_fXX, precision)
+                    num1_base2_str, _ = get_rounded_base2_expansion_of_float(num1_fXX, precision)
+                    num2_base2_str, _ = get_rounded_base2_expansion_of_float(num2_fXX, precision)
                 
                 # Recompute quotient after sign changes
-                quotient_fXX = num1_fXX / num2_fXX
+                quotient_fXX = (np.array(num1_fXX, dtype=computation_dtype[precision]) / np.array(num2_fXX, dtype=computation_dtype[precision])).item()
                 if gs.significant_digits_distribution == SignificantDigitsDistribution.DECIMAL_UNIFORM:
                     m = (int(math.floor(math.log10(abs(quotient_fXX)))) if quotient_fXX != 0 else 0)+1
                     quotient_fXX=round(quotient_fXX, gs.significant_digits-m)
+                    quotient_base2_str, _ = get_rounded_base2_expansion_of_float(quotient_fXX, precision)
+                else:
+                    quotient_base2_str, quotient_fXX = get_rounded_base2_expansion_of_float(quotient_fXX, precision)
+                quotient_base_10_str = float_to_str(quotient_fXX)
                 
                 # Validate final quotient is within bounds [-15, 15] exponent range
                 if 1e-15 <= abs(quotient_fXX) <= 1e15:
@@ -283,8 +295,8 @@ def generate_floatXX_division(exp1: int, exp2: int, gs: Generation_settings, N: 
             raise ValueError(f"Could not generate valid division after 100 tries: exp1={exp1}, exp2={exp2}, quotient_precision={quotient_precision}, divisor_precision={divisor_precision}")
 
         # Final quotient computation with controlled precision
-        quotient_base2_str, quotient_fXX = get_rounded_base2_expansion_of_float(quotient_fXX, precision)
-        quotient_base_10_str = float_to_str(quotient_fXX)
+        # quotient_base2_str, _ = get_rounded_base2_expansion_of_float(quotient_fXX, precision)
+        # quotient_base_10_str = float_to_str(quotient_fXX)
         
         # Compute reciprocal for difficulty calculation
         num2_reciprocal = 1. / num2_fXX
@@ -307,12 +319,12 @@ def generate_floatXX_division(exp1: int, exp2: int, gs: Generation_settings, N: 
             "num2_exp": exp2,
             "quotient_precision": quotient_precision,
             "divisor_precision": divisor_precision,
-            "difficulty": np.clip(multiplication_difficulty_score(num1_base2_str, num2_reciprocal_base2_str, quotient_base2_str)-30, 0, 60),
+            "difficulty": np.clip(multiplication_difficulty_score(num1_base2_str, num2_reciprocal_base2_str, quotient_base2_str), 30 if precision==53 else 15, 60 if precision==53 else 30),
             "difficulty_sd": multiplication_difficulty_score(num1_base_10_str, num2_base_10_str, quotient_base_10_str),
         })
     return rows
 
-def generate_floatXX_addition(exp1: int, exp2: int, gs: Generation_settings, N: int,  precision: int=54, allow_negative=True) -> list[dict]:
+def generate_floatXX_addition(exp1: int, exp2: int, gs: Generation_settings, N: int,  precision: Literal[53, 24, 11]=53, allow_negative=True) -> list[dict]:
     """Generate addition task data.
     
     Args:
@@ -329,10 +341,10 @@ def generate_floatXX_addition(exp1: int, exp2: int, gs: Generation_settings, N: 
     max_number1 = min(gs.max_number, gs.base ** (exp1 + 1))
     min_number2 = max(gs.min_number, gs.base**exp2)
     max_number2 = min(gs.max_number, gs.base ** (exp2 + 1))
-    if gs.significant_digits_distribution == SignificantDigitsDistribution.DECIMAL_UNIFORM:
+    if gs.significant_digits_distribution == SignificantDigitsDistribution.DECIMAL_UNIFORM or gs.significant_digits_distribution == SignificantDigitsDistribution.DECIMAL_UNIFORM:
         sig_decimal_array = np.random.randint(2, 2*(gs.significant_digits+2), size=N).astype(int).tolist()
-    elif gs.significant_digits_distribution != SignificantDigitsDistribution.FULL:
-        raise NotImplementedError(f"Only {SignificantDigitsDistribution.FULL} and {SignificantDigitsDistribution.DECIMAL_UNIFORM} significant digits distribution supported for addition, got {gs.significant_digits_distribution}")
+    # elif gs.significant_digits_distribution != SignificantDigitsDistribution.FULL:
+    #     raise NotImplementedError(f"Only {SignificantDigitsDistribution.FULL} and {SignificantDigitsDistribution.DECIMAL_UNIFORM} significant digits distribution supported for addition, got {gs.significant_digits_distribution}")
         
     for i in range(N):
         num1 = uniform(min_number1, max_number1)
@@ -374,14 +386,17 @@ def generate_floatXX_addition(exp1: int, exp2: int, gs: Generation_settings, N: 
 
         if randint(0, 1) == 0:
             operator = '+'
-            sum_fXX = num1_fXX + num2_fXX
+            sum_fXX = (np.array(num1_fXX, computation_dtype[precision]) + np.array(num2_fXX, computation_dtype[precision])).item()
         else:
             operator = '-'
-            sum_fXX = num1_fXX - num2_fXX
+            sum_fXX = (np.array(num1_fXX, computation_dtype[precision]) - np.array(num2_fXX, computation_dtype[precision])).item()
         if gs.significant_digits_distribution == SignificantDigitsDistribution.DECIMAL_UNIFORM:
             m = (int(math.floor(math.log10(abs(sum_fXX)))) if sum_fXX != 0 else 0)+1
             sum_fXX=round(sum_fXX, gs.significant_digits-m)
-        sum_base2_str, sum_fXX = get_rounded_base2_expansion_of_float(sum_fXX, precision)
+            sum_base2_str, _ = get_rounded_base2_expansion_of_float(sum_fXX, precision)
+        else:
+            sum_base2_str, sum_fXX = get_rounded_base2_expansion_of_float(sum_fXX, precision)
+
         sum_base_10_str = float_to_str(sum_fXX)
 
         rows.append({
@@ -400,12 +415,12 @@ def generate_floatXX_addition(exp1: int, exp2: int, gs: Generation_settings, N: 
             "sum_significant_digits_base_10": get_number_of_significant_digits(sum_base_10_str),
             "num1_exp": num1_exp,
             "num2_exp": num2_exp,
-            "difficulty": min(90, addition_difficulty_score([num1_base2_str, num2_base2_str], sum_base2_str)),
-            "difficulty_sd": min(60, addition_difficulty_score([num1_base_10_str, num2_base_10_str], sum_base_10_str)),
+            "difficulty": min(90 if precision==53 else 50, addition_difficulty_score([num1_base2_str, num2_base2_str], sum_base2_str)),
+            "difficulty_sd": min(60 if precision==53 else 32, addition_difficulty_score([num1_base_10_str, num2_base_10_str], sum_base_10_str)),
         })
     return rows
 
-def generate_floatXX_exponentiation(exp1: int, gs: Generation_settings, N: int, sig_bits: int, precision: int=54, allow_negative=True) -> list[dict]:
+def generate_floatXX_exponentiation(exp1: int, gs: Generation_settings, N: int, sig_bits: int, precision: Literal[53, 24, 11]=53, allow_negative=True) -> list[dict]:
     rows = list()
     min_n2 = math.ceil((gs.min_exponent+1)/(abs(exp1)+1))
     max_n2 = math.floor((gs.max_exponent-1)/(abs(exp1)+1))
@@ -446,15 +461,17 @@ def generate_floatXX_exponentiation(exp1: int, gs: Generation_settings, N: int, 
                 num1_base_10_str = float_to_str(num1_fXX)
                 num2_base_10_str = float_to_str(num2)
 
-            exponentiation = num1_fXX**num2
+            exponentiation = (np.array(num1_fXX, dtype=computation_dtype[precision])**np.array(num2, dtype=computation_dtype[precision])).item()
 
             if gs.significant_digits_distribution == SignificantDigitsDistribution.DECIMAL_UNIFORM:
                 m = (int(math.floor(math.log10(abs(exponentiation)))) if exponentiation != 0 else 0)+1
                 exponentiation=round(exponentiation, gs.significant_digits-m)
-            exponentiation_base2_str, exponentiation_fXX = get_rounded_base2_expansion_of_float(exponentiation, gs.significant_bits)
-            exponentiation_base_10_str = float_to_str(exponentiation_fXX)
+                exponentiation_base2_str, _ = get_rounded_base2_expansion_of_float(exponentiation, gs.significant_bits)
+            else:
+                exponentiation_base2_str, exponentiation = get_rounded_base2_expansion_of_float(exponentiation, gs.significant_bits)
+            exponentiation_base_10_str = float_to_str(exponentiation)
 
-            if abs(num1_fXX)  == 0 or abs(num1_fXX) == 1 or abs(num2) == 0 or abs(num2) == 1 or not (gs.min_number <= abs(exponentiation_fXX) <= gs.max_number):
+            if abs(num1_fXX)  == 0 or abs(num1_fXX) == 1 or abs(num2) == 0 or abs(num2) == 1 or not (gs.min_number <= abs(exponentiation) <= gs.max_number):
                 continue
 
             rows.append({
@@ -469,7 +486,7 @@ def generate_floatXX_exponentiation(exp1: int, gs: Generation_settings, N: int, 
                 "power_significant_digits_base_2": get_number_of_significant_digits(exponentiation_base2_str),
                 "num1_exp": exp1,
                 "num2_exp": float(abs(num2) if abs(num2)>1 else -1/abs(num2)),
-                "difficulty": np.clip(exponentiation_difficulty_score(num1_base2_str, num2_base2_str, exponentiation_base2_str)-5, 0, 60),
+                "difficulty": np.clip(exponentiation_difficulty_score(num1_base2_str, num2_base2_str, exponentiation_base2_str), 5 if precision==53 else 0, 58 if precision==53 else 23),
                 "difficulty_sd": exponentiation_difficulty_score(num1_base_10_str, num2_base_10_str, exponentiation_base_10_str),
             })
     return rows
@@ -527,7 +544,7 @@ def generate_floatXX_mean(
                             max_num_significant_bits=max_num_significant_bits,
                             max_num_significant_digits=max_num_significant_digits
                         )
-                    except AssertionError:
+                    except (AssertionError, ValueError):
                         if j>=19:
                             skip=True
                             continue
@@ -541,16 +558,19 @@ def generate_floatXX_mean(
                         list1_base2_str.append(n_base2_str)
                         list1_base10_str.append(float_to_str(n_fXX))
                         list1_values.append(n_fXX)
-                    mean_value_true = np.array(list1_values, dtype=np.float64).mean().item()
+                    mean_value_true = np.array(list1_values, dtype=computation_dtype[gs.significant_bits]).mean().item()
                     if gs.significant_digits_distribution == SignificantDigitsDistribution.DECIMAL_UNIFORM:
                         m = (int(math.floor(math.log10(abs(mean_value_true)))) if mean_value_true != 0 else 0)+1
                         mean_value_true=round(mean_value_true, gs.significant_digits-m)
-                    mean_true_str_base2, mean_true_value = get_rounded_base2_expansion_of_float(mean_value_true, gs.significant_bits)
-                    std = np.array(list1_values, dtype=np.float64).std().item()
+                        mean_true_str_base2, _ = get_rounded_base2_expansion_of_float(mean_value_true, gs.significant_bits)
+                    else:
+                        mean_true_str_base2, mean_value_true = get_rounded_base2_expansion_of_float(mean_value_true, precision)
+
+                    std = np.array(list1_values, dtype=computation_dtype[gs.significant_bits]).std().item()
                     if (
                         all([(gs.min_number <= abs(f) < gs.max_number) or f==0 for f in list1_values])
                         and (len(list1_values)%2 != 0 or mean_value_true != 0)
-                        and gs.min_number <= std < gs.max_number
+                        and (gs.min_number <= std < gs.max_number)
                         and not (mode == Task.INTERVAL and len(set(list1_base10_str)) < len(list1_base10_str))
                     ):
                         break
@@ -559,14 +579,16 @@ def generate_floatXX_mean(
                         # raise Exception(f"Too many tries {j}: mean1={mean_value}, spread={spread}, precision={precision}, precision_base10={precision_base10}, list_len={list_len}, list1={list1}")
                 if skip:
                     continue
-                mean_true_str_base10 = float_to_str(mean_true_value)
+                mean_true_str_base10 = float_to_str(mean_value_true)
                 if mode == Task.STD:
                     assert gs.min_number <= std < gs.max_number, f"std={std} not in [{gs.min_number}, {gs.max_number}]"
                     if gs.significant_digits_distribution == SignificantDigitsDistribution.DECIMAL_UNIFORM:
                         m = (int(math.floor(math.log10(abs(std)))) if std != 0 else 0)+1
                         std=round(std, gs.significant_digits-m)
-                    std_true_str_base2, std_true_value = get_rounded_base2_expansion_of_float(std, gs.significant_bits)
-                    std_base_10_str = float_to_str(std_true_value)
+                        std_true_str_base2, _ = get_rounded_base2_expansion_of_float(std, gs.significant_bits)
+                    else:
+                        std_true_str_base2, std = get_rounded_base2_expansion_of_float(std, precision)
+                    std_base_10_str = float_to_str(std)
                     record = {
                         "list1": str(list1_base10_str),
                         # "list1_base_2": str(list1_base2_str),
@@ -575,8 +597,8 @@ def generate_floatXX_mean(
                         "list_len": list_len,
                         "exp": exp,
                         "spread": spread,
-                        "difficulty": spread-exp+15,
-                        "difficulty_sd": spread-exp+15,
+                        "difficulty": min(155 if precision==53 else 95, mean_difficulty_metric(list1_base2_str, base=2)), # spread-exp+15,
+                        "difficulty_sd": min(80, mean_difficulty_metric(list1_base10_str, base=10)), # spread-exp+15,
                         "max_num_significant_bits": max_num_significant_bits,
                         "max_num_significant_digits": max_num_significant_digits,
                     }
@@ -589,8 +611,8 @@ def generate_floatXX_mean(
                         "list_len": list_len,
                         "exp": exp,
                         "spread": spread,
-                        "difficulty": spread-exp+15,
-                        "difficulty_sd": spread-exp+15,
+                        "difficulty": min(155 if precision==53 else 95, mean_difficulty_metric(list1_base2_str, base=2)), # spread-exp+15,
+                        "difficulty_sd": min(80, mean_difficulty_metric(list1_base10_str, base=10)), # spread-exp+15,
                         "max_num_significant_bits": max_num_significant_bits,
                         "max_num_significant_digits": max_num_significant_digits,
                     }
@@ -637,11 +659,12 @@ def generate_floatXX_mean(
                             if gs.significant_digits_distribution in [SignificantDigitsDistribution.DECIMAL_UNIFORM]:
                                 random_base_10_str = float_to_str(random_value)
                                 random_base_10_str = round_decimal_str_to_significant_digits(random_base_10_str, int(precision_base10))
-                                random_value = float(random_base_10_str)
-                            
-                            # Convert to base2 representation with same precision
-                            random_base2_str, random_fXX = get_rounded_base2_expansion_of_float(random_value, precision)
-                            random_base_10_str = float_to_str(random_fXX)
+                                random_fXX = float(random_base_10_str)
+                                # Convert to base2 representation with same precision
+                                random_base2_str, _ = get_rounded_base2_expansion_of_float(random_value, precision)
+                            else:
+                                random_base2_str, random_fXX = get_rounded_base2_expansion_of_float(random_value, precision)
+                                random_base_10_str = float_to_str(random_fXX)
                             
                             # Validate the generated number is within bounds
                             if (gs.min_number <= abs(random_fXX) < gs.max_number or random_fXX == 0) and (lower_bound <= random_fXX < upper_bound):
@@ -714,7 +737,7 @@ def generate_dataset(task: Task, split: str, N: int, gs: Generation_settings, po
                     if exp1 + exp2 + 2 <= gs.min_exponent or exp1 + exp2 >= gs.max_exponent:
                         continue
                     all_combinations.append((exp1, exp2, gs))
-            task_func = partial(wrapper, partial(generate_floatXX_multiplication, sig_bits=gs.significant_bits, precision=54, mode=task))
+            task_func = partial(wrapper, partial(generate_floatXX_multiplication, sig_bits=gs.significant_bits, precision=gs.significant_bits, mode=task))
         case Task.ADDITION:
             # 0 if quantization = min_exponent. If quantization> min_exponent, then start at difference (positive)
             exp1_start = max(gs.min_exponent, gs.min_number_exponent)
@@ -740,7 +763,7 @@ def generate_dataset(task: Task, split: str, N: int, gs: Generation_settings, po
                 combo_samples = max(1, int(N * weight / total_weight))
                 all_combinations.append((exp1, exp2, gs_item, combo_samples))
             
-            task_func = partial(wrapper, partial(generate_floatXX_addition, precision=54))
+            task_func = partial(wrapper, partial(generate_floatXX_addition, precision=gs.significant_bits))
         case Task.DIVISION:
             # 0 if quantization = min_exponent. If quantization> min_exponent, then start at difference (positive)
             exp1_start = max(gs.min_exponent, gs.min_number_exponent)
@@ -755,7 +778,7 @@ def generate_dataset(task: Task, split: str, N: int, gs: Generation_settings, po
                     if exp1 - exp2 < gs.min_exponent or exp1 - exp2 >= gs.max_exponent:
                         continue
                     all_combinations.append((exp1, exp2, gs))
-            task_func = partial(wrapper, partial(generate_floatXX_division, sig_bits=gs.significant_bits, precision=54))
+            task_func = partial(wrapper, partial(generate_floatXX_division, sig_bits=gs.significant_bits, precision=gs.significant_bits))
         case Task.EXPONENTIATION:
             exp_start = max(gs.min_exponent, gs.min_number_exponent)
             exp_end = min(gs.max_exponent, gs.max_number_exponent)
@@ -773,7 +796,7 @@ def generate_dataset(task: Task, split: str, N: int, gs: Generation_settings, po
                 # Calculate number of samples for this combination based on weight
                 combo_samples = max(1, int(N * weight / total_weight))
                 all_combinations.append((exp1, gs_item, combo_samples))
-            task_func = partial(wrapper, partial(generate_floatXX_exponentiation, sig_bits=gs.significant_bits, precision=54))
+            task_func = partial(wrapper, partial(generate_floatXX_exponentiation, sig_bits=gs.significant_bits, precision=gs.significant_bits))
         case Task.MEAN | Task.STD | Task.MIN_MAX | Task.SORTING | Task.INTERVAL:
             e_min = max(gs.min_exponent, gs.min_number_exponent)
             e_max = min(gs.max_exponent, gs.max_number_exponent)
