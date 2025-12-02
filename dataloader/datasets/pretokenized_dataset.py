@@ -245,7 +245,7 @@ class _PretokenizedDataset(Dataset, ABC):
                     logging.info(f"Loading full file for preprocessing: {path}")
                     logging.info(f"Loading columns {['prompt', 'answer'] + additional_columns} from csv file")
                     if df_head is not None:
-                        df = concat([chunk for chunk in tqdm(read_csv(path, dtype=str, chunksize=DF_CHUNK_SIZE, usecols=["prompt", "answer"]+ additional_columns), desc='Loading data', unit='100k rows')], ignore_index=True)
+                        df = concat([chunk for chunk in tqdm(read_csv(path, dtype=str, chunksize=DF_CHUNK_SIZE, usecols=lambda col: col in (["prompt", "answer"]+ additional_columns)), desc='Loading data', unit='100k rows')], ignore_index=True)
                         df = df.sample(n=min(unique_samples, len(df)), random_state=42) if shuffle else df[:unique_samples]
                     else:
                         text_dataset = ""

@@ -172,7 +172,7 @@ class CurriculumFixedRatioSampler(RatioSampler):
             try:
                 start_token, end_token = self.dataset.get_difficulty_range(task_idx, difficulty)
                 start_context = ceil((start_token) / self.context_length)
-                end_context = (end_token // self.context_length - 1)
+                end_context = max(start_context, end_token // self.context_length - 1)
                 if end_context == start_context:
                     # Check if can move context range
                     if self.curriculum_manager is not None:

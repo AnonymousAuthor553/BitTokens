@@ -269,7 +269,7 @@ class CurriculumPretokenizedMixin:
         data_lengths = getattr(self, 'data').lengths
         dataset_start = data_lengths[task_id-1] if task_id > 0 else 0
         dataset_end = data_lengths[task_id]
-        if task_id >= len(self.has_difficulty_column) or not self.has_difficulty_column[task_id]:
+        if not self.supports_curriculum_learning(task_id):
             # Fallback: treat entire dataset as single difficulty level
             if difficulty == 0:
                 # Need to access data.lengths from the concrete class
@@ -291,6 +291,8 @@ class CurriculumPretokenizedMixin:
             bool: True if the dataset has a difficulty column, False otherwise.
         """
         if task_id >= len(self.has_difficulty_column):
+            return False
+        if self.dataset_curriculum_types[task_id] in [DATASET_CURRICULUM_TYPE.STANDARD, DATASET_CURRICULUM_TYPE.ENDGAME]:
             return False
         return self.has_difficulty_column[task_id]
     

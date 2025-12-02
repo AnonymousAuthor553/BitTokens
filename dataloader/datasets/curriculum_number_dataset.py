@@ -215,6 +215,11 @@ class CurriculumNumberEvalDataset(CurriculumDatasetABC, EfficientNumberPromptEva
             self.difficulties = [0]  # Default single difficulty
             self.difficulty_indices = {0: (0, len(self.df))}
         self._set_remaining_curriculum_attributes(max_difficulty=[max(self.difficulties)], has_difficulty_column=[self.has_difficulty])
+
+    def switch_to_standard_sampling(self):
+        """Switch to standard sampling mode (no difficulty sampling)."""
+        self.difficulties = [0]  # Default single difficulty
+        self.difficulty_indices = {0: (0, len(self.df))}
     
     def get_available_difficulties(self, _: Any) -> list[int]:
         """Get list of available difficulty levels."""

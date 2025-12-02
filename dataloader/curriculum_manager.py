@@ -79,7 +79,7 @@ class CurriculumManager:
         self.max_lr = max_lr
         self.min_difficulty_ratio = min_difficulty_ratio
 
-        self.threshold_borders: dict[int, int] = dict()
+        self.threshold_borders: dict[int, dict[int, float]] = dict()
         
         self.advancement_step_size: list[int] = []
         # Initialize frontier difficulties (will be set properly during synchronization)
@@ -126,17 +126,57 @@ class CurriculumManager:
     def _update_threshold_borders(self, lr: float, step: int):
         """
         Update threshold borders for all tasks based on current learning rate and step.
+        
+        Cascading schedule per difficulty level (controlled by endgame_switch_*_fraction parameters):
+        - Easiest difficulty (0): threshold reduces from 100% to 0% over progress 0% to 50%
+        - Hardest difficulty (max): threshold reduces from 100% to 0% over progress 50% to 75%
+        - Middle difficulties: linear interpolation of start/end points
+        
+        Example with endgame_switch_lr_fraction=0.5:
+        - Difficulty 0: starts reducing immediately, reaches 0% at 50% LR decay
+        - Difficulty max: starts reducing at 50% LR decay, reaches 0% at 75% LR decay
+        
         Args:
             lr (float): Current learning rate
             step (int): Current training step
         Modifies:
         ---------
-            self.threshold_borders (dict[int, int]): Updated threshold borders for all tasks.
+            self.threshold_borders (dict[int, Dict[int, float]]): Per-difficulty threshold multipliers for each task.
         """
         lr_percentage = (self.max_lr - lr) / (self.endgame_switch_lr_fraction * self.max_lr + 1e-100)
         step_percentage = step / (self.endgame_switch_step_fraction * self.total_training_steps + 1e-100)
-        percentage = max(lr_percentage, step_percentage)
-        self.threshold_borders = {i: round(percentage*self.max_difficulties[i]) for i in range(self.num_tasks)}
+        progress = max(lr_percentage, step_percentage)
+        
+        # Calculate per-difficulty threshold multipliers for each task
+        self.threshold_borders = {}
+        for task_idx in range(self.num_tasks):
+            max_diff = self.max_difficulties.get(task_idx, 0)
+            if max_diff == 0:
+                self.threshold_borders[task_idx] = {0: 1.0}  # No curriculum
+                continue
+            
+            difficulty_multipliers = {}
+            for diff in range(max_diff + 1):
+                difficulty_ratio = diff / max_diff
+                
+                # Cascading schedule:
+                # - Difficulty 0: starts at 0% progress, reaches 0 at 50% progress (1.0)
+                # - Difficulty max_diff: starts at 50% progress (1.0), reaches 0 at 75% progress (1.5)
+                start_progress = difficulty_ratio * 1.0
+                end_progress = start_progress + 0.5
+                
+                if progress <= start_progress:
+                    multiplier = 1.0  # Full threshold
+                elif progress <= end_progress:
+                    # Linear decrease from 1.0 to 0.0
+                    multiplier = 1.0 - (progress - start_progress) / (end_progress - start_progress)
+                else:
+                    multiplier = 0.0  # No threshold
+                
+                difficulty_multipliers[diff] = multiplier
+            
+            self.threshold_borders[task_idx] = difficulty_multipliers
+        
         logging.debug(f"Updated threshold borders: {self.threshold_borders}")
         
     
@@ -223,13 +263,16 @@ class CurriculumManager:
             return False
         
         # All difficulties in window must meet threshold
+        difficulty_multipliers = self.threshold_borders.get(task_idx, {})
+        
         for diff in window_diffs:
             performance = self.get_recent_performance(task_idx, diff, self.advancement_performance_window_size)
-            if diff >= self.threshold_borders[task_idx]:
-                advancement_threshold = self.advancement_threshold
-            else:
-                advancement_threshold = self.advancement_threshold * diff/self.threshold_borders[task_idx]
-            if performance <= advancement_threshold:
+            
+            # Get the threshold multiplier for this specific difficulty
+            difficulty_multiplier = difficulty_multipliers.get(diff, 1.0)
+            
+            advancement_threshold = self.advancement_threshold * difficulty_multiplier
+            if performance < advancement_threshold:
                 logging.debug(f"Task {task_idx}: no advancement (window performance {performance} <= {advancement_threshold}) for difficulty {diff}")
                 return False
         
@@ -247,10 +290,15 @@ class CurriculumManager:
             return {0: 0.0}
         
         available_diffs = self.available_difficulties.get(task_idx, [])
-        diffs_tensor = torch.tensor(available_diffs, dtype=torch.float32)
-        thresholds_tensor = self.advancement_threshold * diffs_tensor / max(self.threshold_borders[task_idx], 1e-6)
+        difficulty_multipliers = self.threshold_borders.get(task_idx, {})
         
-        return dict(zip(available_diffs, thresholds_tensor.clamp(min=0, max=self.advancement_threshold).tolist()))
+        thresholds = {}
+        for diff in available_diffs:
+            # Get the threshold multiplier for this specific difficulty
+            difficulty_multiplier = difficulty_multipliers.get(diff, 1.0)
+            thresholds[diff] = self.advancement_threshold * difficulty_multiplier
+        
+        return thresholds
     
     def get_summary(self) -> str:
         """Get a summary of current curriculum state."""
