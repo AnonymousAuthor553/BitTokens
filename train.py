@@ -17,7 +17,6 @@ from training.evaluation import perform_evaluation
 from training.setup import setup
 from utils.enums import (
     CausalLMOutputWithCrossAttentionsAndNumbers,
-    Trainer,
     TrainMetrics,
 )
 from utils.train_argument_parser import TrainArgumentParser
@@ -33,15 +32,18 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 def training(args: TrainArgumentParser, wandb_run: Optional[wandb.wandb_run.Run] = None):
-    trainer: Trainer = setup(args, wandb_run)
+    trainer, loaded_train_metrics = setup(args, wandb_run)
     model = trainer.model
     optimizer = trainer.optimizer
-    train_metrics = TrainMetrics()
+    train_metrics = loaded_train_metrics if loaded_train_metrics is not None else TrainMetrics()
     num_embedding_module: Optional[ABCEmbedding] = None
     if hasattr(model, "num_embedding_module"):
         num_embedding_module = cast(ABCEmbedding, model.num_embedding_module)
 
     minibatch_losses: dict[str, list[float]] = dict()
+
+    if not isinstance(args.task_ratio_cap, torch.Tensor):
+        args.task_ratio_cap = torch.tensor(args.task_ratio_cap, dtype=torch.float32)
     # Train model
     model.train()
     model.zero_grad()

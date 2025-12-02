@@ -20,7 +20,7 @@ from torch.optim.lr_scheduler import LRScheduler
 from transformers import PreTrainedModel, PreTrainedTokenizerFast
 
 from dataloader.curriculum_manager import CurriculumManager
-from utils.enums import TrackedMetrics, TrackedMetricsDataframe
+from utils.enums import TrackedMetrics, TrackedMetricsDataframe, TrainMetrics
 from utils.train_argument_parser import TrainArgumentParser
 from utils.warm_start_lr_scheduler import WarmStartLrScheduler
 
@@ -124,7 +124,7 @@ def reconstruct_larger_array(known_indices: list[int], small_array: list[float],
     return large_array.tolist()
 
 def load_metrics(load_dir: Path, save_dir: Path) -> tuple[TrackedMetricsDataframe, int, dict[int,int]]:
-    max_step = maxsize if load_dir.name.startswith("latest") else int(load_dir.name.split("_")[0])
+    max_step = maxsize if (load_dir.name.startswith("latest") or load_dir.name.startswith("best"))  else int(load_dir.name.split("_")[0])
     # Load metrics file
     metrics = pd.read_csv(load_dir.parent / "metrics.csv")
     # Remove all rows with step greater than max_step
@@ -134,6 +134,123 @@ def load_metrics(load_dir: Path, save_dir: Path) -> tuple[TrackedMetricsDatafram
     step = metrics["step"].iloc[-1] + 1
     num_tokens_per_step = dict(zip(metrics["step"].tolist(), metrics["num_tokens"].tolist()))
     return metrics, step, num_tokens_per_step
+
+def load_train_metrics_from_csv(metrics_csv_path: Path) -> TrainMetrics:
+    """
+    Load a TrainMetrics object from a metrics CSV file.
+    
+    This function reconstructs a TrainMetrics object from a CSV file that was
+    previously saved using the save_or_add_to_csv function with TrackedMetrics data.
+    It handles the flattened structure and reconstructs nested dictionaries.
+    
+    Args:
+        metrics_csv_path (Path): Path to the metrics.csv file.
+    
+    Returns:
+        TrainMetrics: Reconstructed TrainMetrics object populated with data from the CSV.
+        
+    Example:
+        >>> from pathlib import Path
+        >>> train_metrics = load_train_metrics_from_csv(Path("trained/run/metrics.csv"))
+        >>> print(train_metrics.val_gen_accs[-1])  # Last evaluation accuracies
+    """
+    df = pd.read_csv(metrics_csv_path)
+    train_metrics = TrainMetrics()
+    
+    # Load basic metrics that are always present
+    train_metrics.num_tokens_per_step = dict(zip(df["step"].tolist(), df["num_tokens"].tolist()))
+    train_metrics.lr_updates = df["lr"].tolist() if "lr" in df.columns else []
+    train_metrics.train_perplexities = df["train_perplexity"].tolist() if "train_perplexity" in df.columns else []
+    train_metrics.train_token_accs = df["train_token_accs"].tolist() if "train_token_accs" in df.columns else []
+    
+    # Reconstruct nested dictionaries for train_losses
+    train_loss_cols = [col for col in df.columns if col.startswith("train_loss_")]
+    for col in train_loss_cols:
+        loss_name = col.replace("train_loss_", "")
+        train_metrics.train_losses[loss_name] = df[col].tolist()
+    
+    # Reconstruct nested dictionaries for val_gen_accs
+    val_gen_acc_cols = [col for col in df.columns if col.startswith("val_gen_acc_")]
+    val_gen_accs_dict: dict[str, list[float]] = {}
+    for col in val_gen_acc_cols:
+        dataset_name = col.replace("val_gen_acc_", "")
+        val_gen_accs_dict[dataset_name] = df[col].tolist()
+    
+    # Convert to list of dicts format
+    if val_gen_accs_dict:
+        num_rows = len(df)
+        train_metrics.val_gen_accs = [
+            {name: vals[i] for name, vals in val_gen_accs_dict.items()}
+            for i in range(num_rows)
+        ]
+    
+    # Reconstruct nested dictionaries for val_gen_losses
+    val_gen_loss_cols = [col for col in df.columns if col.startswith("val_gen_loss_")]
+    val_gen_losses_dict: dict[str, list[float]] = {}
+    for col in val_gen_loss_cols:
+        dataset_name = col.replace("val_gen_loss_", "")
+        val_gen_losses_dict[dataset_name] = df[col].tolist()
+    
+    if val_gen_losses_dict:
+        num_rows = len(df)
+        train_metrics.val_gen_losses = [
+            {name: vals[i] for name, vals in val_gen_losses_dict.items()}
+            for i in range(num_rows)
+        ]
+    
+    # Reconstruct nested dictionaries for val_gen_perplexities
+    val_gen_perplexity_cols = [col for col in df.columns if col.startswith("val_gen_perplexity_")]
+    val_gen_perplexities_dict: dict[str, list[float]] = {}
+    for col in val_gen_perplexity_cols:
+        dataset_name = col.replace("val_gen_perplexity_", "")
+        val_gen_perplexities_dict[dataset_name] = df[col].tolist()
+    
+    if val_gen_perplexities_dict:
+        num_rows = len(df)
+        train_metrics.val_gen_perplexities = [
+            {name: vals[i] for name, vals in val_gen_perplexities_dict.items()}
+            for i in range(num_rows)
+        ]
+    
+    # Reconstruct additional_metrics (nested dict of dicts)
+    additional_metrics_cols = [col for col in df.columns if col.startswith("additional_metrics_")]
+    if additional_metrics_cols:
+        num_rows = len(df)
+        train_metrics.additional_metrics = []
+        for i in range(num_rows):
+            row_metrics: dict[str, dict[str, float] | None] = {}
+            for col in additional_metrics_cols:
+                # Format: additional_metrics_<dataset>_<metric>
+                # The metric can be compound like "exact_number_acc" or simple like "logSMAPE"
+                parts = col.replace("additional_metrics_", "")
+                
+                # Find the dataset name by looking for known dataset patterns
+                # Split and reconstruct to find the dataset/metric boundary
+                # The dataset name ends with .csv.gz or .txt typically
+                if ".csv.gz_" in parts:
+                    dataset_name, metric_full = parts.split(".csv.gz_", 1)
+                    dataset_name += ".csv.gz"
+                elif ".txt_" in parts:
+                    dataset_name, metric_full = parts.split(".txt_", 1)
+                    dataset_name += ".txt"
+                else:
+                    # Fallback to original logic if pattern doesn't match
+                    split_parts = parts.rsplit("_", 1)
+                    if len(split_parts) == 2:
+                        dataset_name, metric_full = split_parts
+                    else:
+                        continue
+                
+                val = df[col].iloc[i]
+                if pd.notna(val):
+                    if dataset_name not in row_metrics:
+                        row_metrics[dataset_name] = {}
+                    metric_dict = row_metrics[dataset_name]
+                    if isinstance(metric_dict, dict):
+                        metric_dict[metric_full] = float(val)
+            train_metrics.additional_metrics.append(row_metrics)
+    
+    return train_metrics
 
 def load_checkpoint(
         optimizer: Optimizer,
@@ -162,9 +279,9 @@ def load_checkpoint(
     if lr_schedulers is not None:
         for i, lr_scheduler in enumerate(lr_schedulers):
             lr_scheduler.load_state_dict(torch.load(checkpoint_dir / f"scheduler{i}.pt"))
-            lr_scheduler.last_epoch = step+1
+            # lr_scheduler.last_epoch = step+1
 
-    if curriculum_manager is not None and (checkpoint_dir / "curriculum_manager").exists():
+    if curriculum_manager is not None and (checkpoint_dir / "curriculum_manager.pt").exists():
         curriculum_manager_state_dict: dict = torch.load(checkpoint_dir / "curriculum_manager.pt")
         curriculum_manager.load_state(curriculum_manager_state_dict)
 

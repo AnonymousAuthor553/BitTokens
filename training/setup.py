@@ -16,22 +16,28 @@ from transformers import PreTrainedTokenizerFast
 from dataloader.curriculum_manager import CurriculumManager
 from dataloader.dataloaders import get_eval_loader, get_train_loader
 from networks.models import get_model
-from utils.enums import Trainer
+from utils.enums import Trainer, TrainMetrics
 from utils.train_argument_parser import TrainArgumentParser
-from utils.util_funcs import load_checkpoint, load_metrics, print_and_save_arguments
+from utils.util_funcs import (
+    load_checkpoint,
+    load_metrics,
+    load_train_metrics_from_csv,
+    print_and_save_arguments,
+)
 from utils.warm_start_lr_scheduler import (
     WarmStartLrScheduler,
     WarmStartReduceLROnPlateau,
 )
 
 
-def setup(args: TrainArgumentParser, wandb_run: Optional[wandb.wandb_run.Run] = None) -> Trainer:
+def setup(args: TrainArgumentParser, wandb_run: Optional[wandb.wandb_run.Run] = None) -> tuple[Trainer, Optional[TrainMetrics]]:
     """Sets up the training environment, including loading datasets, initializing the model, optimizer, and learning rate scheduler
     Args:
         args (TrainArgumentParser): Parsed command line arguments.
         wandb_run (Optional[wandb.wandb_run.Run]): Optional Weights & Biases run object for logging.
     Returns:
         trainer (Trainer): An instance of the Trainer class, which encapsulates the model, optimizer, and training loop.
+        train_metrics (Optional[TrainMetrics]): Loaded TrainMetrics object if continuing from a checkpoint, None otherwise.
     """
     # Create timestamped save directory
     save_dir = Path(args.save_dir)
@@ -41,16 +47,86 @@ def setup(args: TrainArgumentParser, wandb_run: Optional[wandb.wandb_run.Run] = 
     save_dir.mkdir(parents=True, exist_ok=True)
     logging.info(f"Saving to {save_dir}")
 
-    if args.device == torch.device("cuda:0"):
-        assert torch.cuda.is_available(), "CUDA is not available"
-
     tokenizer: PreTrainedTokenizerFast = PreTrainedTokenizerFast.from_pretrained(args.tokenizer_dir)
     tokenizer.padding_side = "left"
 
     if args.continue_from:
-        metrics_df, step = load_metrics(args.continue_from, save_dir)
+        metrics_df, step, num_tokens_per_step = load_metrics(args.continue_from, save_dir)
+        
+        # Load full train_metrics from CSV
+        loaded_train_metrics = load_train_metrics_from_csv(save_dir / "metrics.csv")
+        
+        # Interpolate missing values in num_tokens_per_step, train_token_accs, and lr_updates
+        if num_tokens_per_step:
+            sorted_steps = sorted(num_tokens_per_step.keys())
+            max_step = sorted_steps[-1]
+            num_tokens_per_step_full: dict[int, int] = {}
+            train_token_accs_full: list[float] = []
+            lr_updates_full: list[float] = []
+            
+            for current_step in range(max_step + 1):
+                if current_step in num_tokens_per_step:
+                    num_tokens_per_step_full[current_step] = num_tokens_per_step[current_step]
+                    # Find the index in the original metrics for this step
+                    step_idx = sorted_steps.index(current_step)
+                    train_token_accs_full.append(loaded_train_metrics.train_token_accs[step_idx])
+                    lr_updates_full.append(loaded_train_metrics.lr_updates[step_idx])
+                else:
+                    # Find surrounding steps for linear interpolation
+                    left_idx = next((i for i in range(len(sorted_steps) - 1, -1, -1) if sorted_steps[i] < current_step), None)
+                    right_idx = next((i for i in range(len(sorted_steps)) if sorted_steps[i] > current_step), None)
+                    
+                    if left_idx is not None and right_idx is not None:
+                        left_step, right_step = sorted_steps[left_idx], sorted_steps[right_idx]
+                        left_tokens, right_tokens = num_tokens_per_step[left_step], num_tokens_per_step[right_step]
+                        weight = (current_step - left_step) / (right_step - left_step)
+                        num_tokens_per_step_full[current_step] = int(left_tokens + weight * (right_tokens - left_tokens))
+                        
+                        # Interpolate train_token_accs
+                        left_acc = loaded_train_metrics.train_token_accs[left_idx]
+                        right_acc = loaded_train_metrics.train_token_accs[right_idx]
+                        train_token_accs_full.append(left_acc + weight * (right_acc - left_acc))
+                        
+                        # Interpolate lr_updates
+                        left_lr = loaded_train_metrics.lr_updates[left_idx]
+                        right_lr = loaded_train_metrics.lr_updates[right_idx]
+                        lr_updates_full.append(left_lr + weight * (right_lr - left_lr))
+                    elif left_idx is not None and left_idx > 0:
+                        # Extrapolate beyond last known step
+                        prev_step, last_step = sorted_steps[left_idx - 1], sorted_steps[left_idx]
+                        slope = (num_tokens_per_step[last_step] - num_tokens_per_step[prev_step]) / (last_step - prev_step)
+                        num_tokens_per_step_full[current_step] = int(num_tokens_per_step[last_step] + slope * (current_step - last_step))
+                        
+                        # Extrapolate train_token_accs
+                        prev_acc = loaded_train_metrics.train_token_accs[left_idx - 1]
+                        last_acc = loaded_train_metrics.train_token_accs[left_idx]
+                        acc_slope = (last_acc - prev_acc) / (last_step - prev_step)
+                        train_token_accs_full.append(last_acc + acc_slope * (current_step - last_step))
+                        
+                        # Extrapolate lr_updates
+                        prev_lr = loaded_train_metrics.lr_updates[left_idx - 1]
+                        last_lr = loaded_train_metrics.lr_updates[left_idx]
+                        lr_slope = (last_lr - prev_lr) / (last_step - prev_step)
+                        lr_updates_full.append(last_lr + lr_slope * (current_step - last_step))
+                    else:
+                        # Use nearest known value
+                        idx = right_idx if right_idx is not None else left_idx
+                        num_tokens_per_step_full[current_step] = num_tokens_per_step[sorted_steps[idx]] if idx is not None else 0
+                        if idx is not None:
+                            train_token_accs_full.append(loaded_train_metrics.train_token_accs[idx])
+                            lr_updates_full.append(loaded_train_metrics.lr_updates[idx])
+                        else:
+                            train_token_accs_full.append(0.0)
+                            lr_updates_full.append(0.0)
+            
+            loaded_train_metrics.num_tokens_per_step = num_tokens_per_step_full
+            loaded_train_metrics.train_token_accs = train_token_accs_full[1:]  # Exclude step 0 to align lengths
+            loaded_train_metrics.lr_updates = lr_updates_full[1:]  # Exclude step 0 to align lengths
+        
+        step-=1
     else:
         step = 0
+        loaded_train_metrics = None
 
     # Load the datasets
     logging.info(f"Loading train dataset from {list(map(str,args.train_set_paths))}")
@@ -159,74 +235,92 @@ def setup(args: TrainArgumentParser, wandb_run: Optional[wandb.wandb_run.Run] = 
 
     logging.info(f"Total training steps: {args.max_train_steps}")
 
-    if args.continue_from:
-        # TODO Handle dicts
-        raise NotImplementedError("Handle dicts")
-    else:
-        if args.from_pretrained:
-            model = get_model(
-                tokenizer=tokenizer,
-                args=args,
-                pretrained_model_dir=args.from_pretrained,
-                device=args.device
-            )
-        else:
-            model = get_model(tokenizer=tokenizer,args=args,device=args.device)
-        # collect the parameters to optimize
-        hidden_matrix_params = [p for p in model.transformer.h.parameters() if p.ndim >= 2]
-        embed_params = [p for p in model.transformer.wte.parameters()]
-        scalar_params = [p for p in model.parameters() if p.ndim < 2]
-        head_params = [model.lm_head.weight] if not model.config.tie_word_embeddings else []
-        param_ids = {id(param) for param in hidden_matrix_params + scalar_params + head_params + embed_params}
-        remaining_params = [p for p in model.parameters() if id(p) not in param_ids]
-        head_params += remaining_params
-        param_groups = [
-            dict(params=hidden_matrix_params, use_muon=True,
-                lr=args.lr, momentum=0.95),
-            dict(params=head_params, use_muon=False,
-                lr=0.2*args.lr, betas=(0.9, 0.95), weight_decay=0),
-            dict(params=embed_params, use_muon=False,
-                lr=15*args.lr, betas=(0.9, 0.95), weight_decay=args.weight_decay),
-            dict(params=scalar_params, use_muon=False,
-                lr=args.lr, betas=(0.9, 0.95), weight_decay=0)
-        ]
-        optimizer = SingleDeviceMuonWithAuxAdam(param_groups)
-
-        # Create a scheduler for each optimizer
-        lr_schedulers = []
-        if args.lr_scheduler_type == "cosine":
-            lr_scheduler = torch.optim.lr_scheduler.SequentialLR(
-            optimizer,
-            [
-                WarmStartLrScheduler(optimizer, total_iters=ceil(args.num_warmup_steps / (args.effective_batch_size//args.device_batch_size))),
-                torch.optim.lr_scheduler.CosineAnnealingLR(
-                    optimizer,
-                    ceil((args.max_train_steps-args.num_warmup_steps) / (args.effective_batch_size//args.device_batch_size)),
-                    eta_min=args.lr/10
-                )
-            ],
-            [ceil(args.num_warmup_steps / (args.effective_batch_size//args.device_batch_size))]
+    if args.from_pretrained:
+        model = get_model(
+            tokenizer=tokenizer,
+            args=args,
+            pretrained_model_dir=args.from_pretrained,
+            device=args.device
         )
-        elif args.lr_scheduler_type == "plateau":
-            lr_scheduler = WarmStartReduceLROnPlateau(
+    elif args.continue_from:
+        model = get_model(
+            tokenizer=tokenizer,
+            args=args,
+            pretrained_model_dir=args.continue_from,
+            device=args.device
+        )
+    else:
+        model = get_model(tokenizer=tokenizer,args=args,device=args.device)
+    # collect the parameters to optimize
+    hidden_matrix_params = [p for p in model.transformer.h.parameters() if p.ndim >= 2]
+    embed_params = [p for p in model.transformer.wte.parameters()]
+    scalar_params = [p for p in model.parameters() if p.ndim < 2]
+    head_params = [model.lm_head.weight] if not model.config.tie_word_embeddings else []
+    param_ids = {id(param) for param in hidden_matrix_params + scalar_params + head_params + embed_params}
+    remaining_params = [p for p in model.parameters() if id(p) not in param_ids]
+    head_params += remaining_params
+    
+    if args.optimizer == "Muon":
+        param_groups = [
+            dict(params=hidden_matrix_params, use_muon=True,lr=args.lr, momentum=0.95),
+            dict(params=head_params, use_muon=False, lr=0.2*args.lr, betas=(0.9, 0.95), weight_decay=0),
+            dict(params=embed_params, use_muon=False, lr=15*args.lr, betas=(0.9, 0.95), weight_decay=args.weight_decay),
+            dict(params=scalar_params, use_muon=False, lr=args.lr, betas=(0.9, 0.95), weight_decay=0)
+        ]
+    elif args.optimizer == "AdamW":
+        param_groups = [
+            dict(params=hidden_matrix_params, use_muon=False, lr=args.lr, betas=(0.9, 0.95), weight_decay=0),
+            dict(params=head_params, use_muon=False, lr=0.2*args.adamW_lr, betas=(0.9, 0.95), weight_decay=0),
+            dict(params=embed_params, use_muon=False, lr=15*args.adamW_lr, betas=(0.9, 0.95), weight_decay=args.weight_decay),
+            dict(params=scalar_params, use_muon=False, lr=args.adamW_lr, betas=(0.9, 0.95), weight_decay=0)
+        ]
+    else:
+        raise ValueError(f"Unknown optimizer: {args.optimizer}")
+    optimizer = SingleDeviceMuonWithAuxAdam(param_groups)
+
+    # Create a scheduler for each optimizer
+    lr_schedulers = []
+    if args.lr_scheduler_type == "cosine":
+        lr_scheduler = torch.optim.lr_scheduler.SequentialLR(
+        optimizer,
+        [
+            WarmStartLrScheduler(optimizer, total_iters=ceil(args.num_warmup_steps / (args.effective_batch_size//args.device_batch_size))),
+            torch.optim.lr_scheduler.CosineAnnealingLR(
                 optimizer,
-                warmup_iters=ceil(args.num_warmup_steps / (args.effective_batch_size//args.device_batch_size)),
-                mode="max",
-                factor=2/3, # 5 reduction steps
-                patience=20 * (args.eval_every_k_steps / (args.effective_batch_size//args.device_batch_size)),
-                threshold=0.01,
-                threshold_mode="abs",
-                cooldown=0,
-                eps=1e-8
+                ceil((args.max_train_steps-args.num_warmup_steps) / (args.effective_batch_size//args.device_batch_size)),
+                eta_min=args.lr/10
             )
-        else:
-            raise ValueError(f"Unknown lr_scheduler_type: {args.lr_scheduler_type}")
-        lr_schedulers.append(lr_scheduler)
+        ],
+        [ceil(args.num_warmup_steps / (args.effective_batch_size//args.device_batch_size))]
+    )
+    elif args.lr_scheduler_type == "plateau":
+        lr_scheduler = WarmStartReduceLROnPlateau(
+            optimizer,
+            warmup_iters=ceil(args.num_warmup_steps / (args.effective_batch_size//args.device_batch_size)),
+            mode="max",
+            factor=2/3, # 5 reduction steps
+            patience=20 * (args.eval_every_k_steps / (args.effective_batch_size//args.device_batch_size)),
+            threshold=0.01,
+            threshold_mode="abs",
+            cooldown=0,
+            eps=1e-8
+        )
+    else:
+        raise ValueError(f"Unknown lr_scheduler_type: {args.lr_scheduler_type}")
+    lr_schedulers.append(lr_scheduler)
 
     if args.from_pretrained is not None:
         load_checkpoint(
             optimizer=optimizer,
             checkpoint_dir=args.from_pretrained,
+            device=args.device,
+            lr_schedulers=lr_schedulers,
+            curriculum_manager=curriculum_manager
+        )
+    elif args.continue_from is not None:
+        load_checkpoint(
+            optimizer=optimizer,
+            checkpoint_dir=args.continue_from,
             device=args.device,
             lr_schedulers=lr_schedulers,
             curriculum_manager=curriculum_manager
@@ -256,4 +350,4 @@ def setup(args: TrainArgumentParser, wandb_run: Optional[wandb.wandb_run.Run] = 
         eval_use_linear_prob_agg=eval_use_linear_prob_agg,
         save_dir=save_dir,
         curriculum_manager=curriculum_manager
-    )
+    ), loaded_train_metrics

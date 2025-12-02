@@ -73,6 +73,13 @@ def logSMAPE(
     correct_samples = acc > correct_threshold
     return acc.mean().item(), correct_samples, acc.float()
 
+def logSMAPE_32(
+        num_pred: torch.DoubleTensor,
+        num_true: torch.DoubleTensor,
+        **kwargs
+    ) -> tuple[float, torch.BoolTensor, torch.FloatTensor]:
+    return logSMAPE(num_pred, num_true, **kwargs, max_num_digits=6)
+
 def token_eqality(
         *,
         y_pred: torch.LongTensor,
@@ -333,6 +340,7 @@ class MetricFunction:
     TOKEN_EQUALITY = "token_eqality"
     S_MAPE= "sMAPE"
     LOG_SMAPE = "logSMAPE"
+    LOG_SMAPE_32 = "logSMAPE_32"
     LOG_SMAPE_BASE2 = "logSMAPE_base2"
     EXACT_NUMBER_ACC = "exact_number_acc"
     NORMALIZED_CLASS_ACC = "normalized_class_acc"

@@ -91,6 +91,10 @@ def perform_loss_and_task_weighting(
         inv_gen_mean = inverse_generalized_mean(task_accs=task_accs, p=args.task_loss_exponent)
         if curriculum_manager is not None:
             task_selector, inv_gen_mean = curriculum_manager.compute_true_task_ratios(task_selector, inv_gen_mean) # pyright: ignore[reportArgumentType]
+
+        selected_task_ratio_cap: torch.FloatTensor = args.task_ratio_cap[task_selector] # pyright: ignore[reportArgumentType, reportCallIssue]
+        inv_gen_mean = project_with_caps(inv_gen_mean, selected_task_ratio_cap)
+        
         target_loss_new = args.loss_weight_momentum * target_loss_old + (1-args.loss_weight_momentum) * inv_gen_mean
         train_loss_array  = torch.tensor(list(train_losses.values())[1:])
         loss_descaled: torch.FloatTensor = train_loss_array / (old_weights * old_ratios)
@@ -116,3 +120,51 @@ def perform_loss_and_task_weighting(
         trainer.train_ratios[train_metrics.num_tokens_per_step[trainer.step]] = {k.removesuffix("_val_10k.csv.gz"): v for k,v in d.items()}
         d = {"step": trainer.step, "tokens": train_metrics.num_tokens_per_step[trainer.step], **d}
         save_or_add_to_csv(d, trainer.save_dir / "train_set_ratios.csv")
+
+def project_with_caps(A: torch.FloatTensor, B: torch.FloatTensor):
+    """
+    Project A onto the probability simplex with per-element upper bounds B.
+    A, B: (N,) tensors, A >= 0, B >= 0, sum(A)=1.
+
+    Args:
+        A (torch.FloatTensor): Input tensor to be projected
+        B (torch.FloatTensor): Upper bounds for each element
+    Returns:
+        out (torch.FloatTensor): torch.Tensor: Projected tensor satisfying the simplex and cap constraints
+
+    """
+    A = A.clone()
+    B = B.clone()
+
+    # Active set: coordinates fixed at cap
+    active = torch.zeros_like(A, dtype=torch.bool)
+
+    while True:
+        free = ~active
+        mass_fixed = B[active].sum()
+        remaining = 1.0 - mass_fixed
+
+        if remaining <= 0:
+            # Everything must be fixed
+            out = torch.zeros_like(A)
+            out[active] = B[active]
+            return out
+
+        # Renormalize A over free coords
+        Afree = A[free]
+        scale = remaining / Afree.sum()
+        x_free = Afree * scale
+
+        # Check which free coords violate the cap
+        violates = x_free > B[free]
+
+        if not violates.any():
+            out = torch.zeros_like(A)
+            out[active] = B[active]
+            out[free] = x_free
+            return out
+
+        # Add newly violated coordinates to active set and repeat
+        idx_free = free.nonzero(as_tuple=True)[0]
+        active[idx_free[violates]] = True
+    

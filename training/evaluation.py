@@ -13,6 +13,7 @@ import wandb.wandb_run
 from dataloader.curriculum_manager import CurriculumManager
 from dataloader.curriculum_sampler import CurriculumFixedRatioSampler
 from dataloader.dataloaders import CurriculumEvalDataset
+from dataloader.datasets.pretokenized_dataset import _PretokenizedDataset
 from eval import evaluate
 from networks.number_embedding_modules.abc_embedding import ABCEmbedding
 from training.loss_and_task_weighting import perform_loss_and_task_weighting
@@ -87,7 +88,7 @@ def perform_evaluation(
             val_loader,
             args.val_set_metrics[i],
             trainer.tokenizer,
-            max_eval_steps=(args.effective_batch_size//args.device_batch_size)*args.max_eval_steps,
+            max_eval_steps=(args.effective_batch_size//args.device_batch_size)*(1 if isinstance(val_loader.dataset, _PretokenizedDataset) else args.max_eval_steps),
             use_tqdm=args.tqdm,
             return_predictions=False,
             return_samples=True,
@@ -259,7 +260,7 @@ def perform_evaluation(
     save_or_add_to_csv(tracked_metrics_dict, trainer.save_dir / "metrics.csv")
 
 
-    if num_embedding_module is not None:
+    if num_embedding_module is not None and hasattr(num_embedding_module, "freq_loss_weights"):
         trainer.freq_loss_weights_agg.append(num_embedding_module.freq_loss_weights.float().cpu().numpy()[0, :num_embedding_module.freq_size])
         
     # Repeat for eval

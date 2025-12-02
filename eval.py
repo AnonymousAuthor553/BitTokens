@@ -12,6 +12,7 @@ from transformers import GPT2LMHeadModel, PreTrainedTokenizerFast
 
 from data_generation.data_gen_utils import get_strat_params, plot_accuracy_distribution
 from dataloader.dataloaders import get_eval_loader
+from dataloader.datasets.pretokenized_dataset import _PretokenizedDataset
 from networks.models import get_model
 from networks.number_embedding_modules.abc_embedding import ABCEmbedding
 from utils.enums import (
@@ -68,6 +69,23 @@ def evaluate(
     per_sample_acc_list: list[float] = list()
     per_sample_correct_list: list[bool] = list()
     gen_losses: list[float] = list()
+    text_gen_losses: list[float] = list()
+    numeric_text_gen_losses: list[float] = list()
+
+    # Create a list of all numeric tokens. These can be tokenizer.num_token_id or any number-like token in the tokenizer
+    numeric_token_ids: list[int] = []
+    if hasattr(model, "num_token_ids"):
+        numeric_token_ids.extend(model.num_token_ids.cpu().tolist()) # pyright: ignore[reportCallIssue]
+    else:
+        # Try to find number-like tokens in the tokenizer
+        for token_id in range(len(tokenizer.vocab)):
+            token = tokenizer.decode([token_id])
+            try:
+                if float(token)+1 > float(token):
+                    numeric_token_ids.append(token_id)
+            except ValueError:
+                continue
+
     num_gen_losses: list[float] = list()
     additional_metrics: dict[str, list[float]] = dict()
     per_sample_additional_metrics: dict[str, list] = dict()
@@ -168,7 +186,6 @@ def evaluate(
                     else:
                         num_gen_losses.append(0)
                 else:
-                    max_eval_steps= (384//args.device_batch_size)*3 if max_eval_steps == maxsize else 0 # For testing evaluate 20 minibatches
                     outputs: CausalLMOutputWithCrossAttentionsAndNumbers = model.forward( 
                         input_ids=batch["input_ids"].to(model.device), # pyright: ignore[reportArgumentType]
                         attention_mask=batch["attention_mask"].to(model.device), # pyright: ignore[reportArgumentType]
@@ -289,6 +306,48 @@ def evaluate(
             gen_predictions.extend(tokenizer.batch_decode(preds_list))
         gen_losses.append(loss)
 
+        if isinstance(test_loader.dataset, _PretokenizedDataset):
+            # Use numeric_token_ids to create a mask of numeric tokens in labels
+            numeric_label_mask = get_num_token_mask(labels, torch.LongTensor(numeric_token_ids))
+            # Check the token right before each true in numeric_label_mask, if it is a sign token (+,-), include it in the mask
+            sign_token_ids = [tokenizer.convert_tokens_to_ids("-")]
+            for i in range(labels.shape[0]):
+                for j in range(1, labels.shape[1]):
+                    if numeric_label_mask[i,j] and labels[i,j-1].item() in sign_token_ids:
+                        numeric_label_mask[i,j-1] = True
+            non_numeric_label_mask = ~numeric_label_mask & label_mask[:,1:]
+
+            # Compute text-only loss
+            text_loss = torch.nn.functional.cross_entropy(
+                logits[non_numeric_label_mask],
+                labels[non_numeric_label_mask],
+                reduction="none"
+            ).flatten().tolist()
+            text_gen_losses.extend(text_loss)
+
+            # Create mask for non-numeric tokens within K=15 tokens of any numeric token using convolution
+            K = 20
+            # Use 1D convolution to efficiently find tokens within K positions of numeric tokens
+            # Create a kernel of size 2*K+1 filled with ones
+            kernel = torch.ones(1, 1, 2*K+1, dtype=torch.float32)
+            # Apply convolution with padding to maintain sequence length
+            near_numeric_mask = torch.nn.functional.conv1d(numeric_label_mask.float().unsqueeze(1), kernel, padding=K).squeeze(1) > 0  # [B, seq_len]
+            
+            # Select only non-numeric tokens that are near numeric tokens
+            non_numeric_label_mask_near_numeric = ~numeric_label_mask & near_numeric_mask & label_mask[:,1:]
+
+            # Compute numeric text-only loss
+            numeric_text_loss = torch.nn.functional.cross_entropy(
+                logits[non_numeric_label_mask_near_numeric],
+                labels[non_numeric_label_mask_near_numeric],
+                reduction="none"
+            ).flatten().tolist()
+            numeric_text_gen_losses.extend(numeric_text_loss)
+
+            if len(text_gen_losses)>=9_724_429:
+                text_gen_losses = text_gen_losses[:9_724_429]
+                break
+
         if use_tqdm:
             iterator.set_description(f"Evaluating{post_fix}, Validation loss: {loss:.3f}")
         if step >= max_eval_steps:
@@ -342,6 +401,8 @@ def evaluate(
         loss = np.mean(gen_losses).item(),
         num_loss = np.mean(num_gen_losses).item(),
         perplexity=np.mean(np.exp(gen_losses)).item(),
+        text_perplexity=np.exp(np.mean(text_gen_losses)).item(),
+        numeric_text_perplexity=np.exp(np.mean(numeric_text_gen_losses)).item(),
         additional_metrics={k: np.mean(v).item() for k, v in per_sample_additional_metrics.items()},
         per_sample_acc = per_sample_acc_list,
         per_sample_correct = per_sample_correct_list,
@@ -415,6 +476,7 @@ if __name__ == "__main__":
             test_loader,
             args.test_set_metrics[i],
             tokenizer,
+            max_eval_steps=(384//args.device_batch_size)*26 if "pretokenized" in args.test_dataset_types[i] else maxsize, # Equal to 10_485_760 val tokens used by modded-nanogpt
             use_tqdm=True,
             leave_tqdm=True,
             return_predictions=True,
@@ -443,6 +505,8 @@ if __name__ == "__main__":
             "loss": eval_out.loss,
             "num_loss": eval_out.num_loss,
             "perplexity": eval_out.perplexity,
+            "text_perplexity": eval_out.text_perplexity,
+            "numeric_text_perplexity": eval_out.numeric_text_perplexity,
             "sample_acc": eval_out.correct_acc,
             str(args.test_set_metrics[i]): eval_out.acc,
             **eval_out.additional_metrics,

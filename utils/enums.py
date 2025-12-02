@@ -52,6 +52,11 @@ class DATASET_CURRICULUM_TYPE(BetterEnum):
     ENDGAME = "endgame"          # Dataset with endgame curriculum learning, focusing on the hardest samples at the end of training
     STANDBY = "standby"          # Dataset with standby curriculum learning, maintaining a small portion of samples even after switching to endgame
 
+class NUMBER_HEAD(BetterEnum):
+    LINEAR = "linear"            # Linear layer for number prediction
+    MLP = "mlp"                  # Multi-layer perceptron for number prediction
+    NONE = "None"                # No number prediction head
+
 class CausalLMOutputWithCrossAttentionsAndNumbers(CausalLMOutputWithCrossAttentions):
     """
     `OrderedDict` that extends the `CausalLMOutputWithCrossAttentions` class
@@ -87,6 +92,8 @@ class EvalOutput():
     loss: float                                             # Overall loss of the generated samples
     num_loss: float                                         # Loss of the generated samples for the number prediction task
     perplexity: float                                       # Perplexity of the generated samples
+    text_perplexity: float                                  # Perplexity of the generated samples
+    numeric_text_perplexity: float                          # Perplexity of the numeric parts of the generated samples
     per_sample_acc: list[float]                             # List of metric accuracies for each generated sample
     per_sample_correct: list[bool]                          # List of booleans indicating whether each generated sample is correct
     samples_dict: Optional[SamplesDict]                     # Dictionary containing input, label, prediction, correctness, and additional metrics for a small set of samples
