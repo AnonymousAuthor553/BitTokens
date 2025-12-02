@@ -8,7 +8,7 @@ from typing import Literal, Optional, TypeVar, override
 import torch
 from tap import Tap
 
-from utils.enums import COMBINE_STRATEGY, MODEL_TYPE, POSITION_EMBEDDING
+from utils.enums import COMBINE_STRATEGY, MODEL_TYPE, NUMBER_HEAD, POSITION_EMBEDDING
 
 TapType = TypeVar("TapType", bound="Tap")
 
@@ -21,13 +21,16 @@ class BaseArgumentParser(Tap, ABC):
     tokenizer_dir: Path                      # Path to tokenizer directory
 
     combine_strategy: COMBINE_STRATEGY = "sum" # Strategy to combine number encoding with input embeddings
-    num_embedding_type: Literal["ffloat", "fone", "xval", "ntt", "fourier64", "float64", "base10"] = "float64" # Type of loss to use for numerical values
+    num_embedding_type: Literal["fone", "xval", "float64", "base10"] = "float64" # Type of loss to use for numerical values
     float_type: Literal["float32", "float64"] = "float64" # Type of float to use for numerical values
     base: int = 2                     # Base for number encoding
     add_reciprocal: bool = False        # Whether to include 1/x in the embedding
     normalize_num_embedding: bool = False # Whether to normalize the number embedding to [-1, 1]
     dropout: float = 0 # Dropout for the model. By default, 0.1 dropout is used
     num_loss_type: str = "mse" # Type of loss to use for numerical values
+    num_head_type: NUMBER_HEAD = NUMBER_HEAD.LINEAR # Type of number prediction head
+    norm: Literal["rms", "layer"] = "rms" # Normalization function to use in attention layers
+    precision_type: Literal["float16", "bfloat16", "float32", "float64"] = "float64" # Precision type for number embeddings
 
 
     model: Optional[MODEL_TYPE] = "rope_gpt2" # Model to use
@@ -69,13 +72,14 @@ class BaseArgumentParser(Tap, ABC):
                         logging.warning(f"Warning: 'ape' position embedding is not supported for {self.model}. Using 'rope' instead")
                     self.position_embedding = "rope"
         self.data_type = cast_to_torch_dtype(self.data_type)
+        self.precision_type = cast_to_torch_dtype(f"torch.{self.precision_type}")
         
         assert torch.cuda.is_available(), "CUDA is not available"
         vram = torch.cuda.get_device_properties(0).total_memory
         if vram > 1.6 * self.default_vram:
             self.device_batch_size = self.device_batch_size * 2
             print(f"VRAM: {vram} bytes. Doubling batch size: {self.device_batch_size}")
-    
+
     @override
     def parse_args(self, args = None, known_only = False, legacy_config_parsing=False) -> "BaseArgumentParser": # pyright: ignore[reportRedeclaration]
         if "--load_config_from" in argv:

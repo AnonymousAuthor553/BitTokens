@@ -19,7 +19,7 @@ from utils.train_argument_parser import BaseArgumentParser
 def _default_gpt2_config(tokenizer: PreTrainedTokenizerFast, args: BaseArgumentParser, **kwargs) -> GPT2Config:
     if not isinstance(tokenizer.bos_token_id, int) or not isinstance(tokenizer.eos_token_id, int) or not isinstance(tokenizer.pad_token_id, int):
         raise ValueError("Tokenizer must have valid bos_token_id, eos_token_id, and pad_token_id.")
-    return GPT2Config(
+    config = GPT2Config(
         bos_token_id=tokenizer.bos_token_id,
         eos_token_id=tokenizer.eos_token_id,
         pad_token_id=tokenizer.pad_token_id,
@@ -32,6 +32,8 @@ def _default_gpt2_config(tokenizer: PreTrainedTokenizerFast, args: BaseArgumentP
         _attn_implementation=args.attn_implementation,
         **kwargs
     )
+    setattr(config, "norm_class", args.norm)
+    return config
 
 def getGpt2Model(
         tokenizer: PreTrainedTokenizerFast,
@@ -68,9 +70,9 @@ def getRopeGpt2Model(
     Returns:
         RopeGPT2LMHeadModel: The model
     """
-    if pretrained_model_dir is not None:
-        return RopeGPT2LMHeadModel.from_pretrained(pretrained_model_dir).to(device=device) # pyright: ignore[reportCallIssue]
     config = _default_gpt2_config(tokenizer, args)
+    if pretrained_model_dir is not None:
+        return RopeGPT2LMHeadModel.from_pretrained(pretrained_model_dir, config=config).to(device=device) # pyright: ignore[reportCallIssue]
     return RopeGPT2LMHeadModel(config).to(device=device) # pyright: ignore[reportCallIssue]
 
 def getNanoGptModel(

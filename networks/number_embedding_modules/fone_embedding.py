@@ -180,7 +180,7 @@ class FoNE(ABCEmbedding):
         powers_of_ten = self.powers_of_ten  # Select required powers
         # Scale labels and extract digits
         
-        scaled_labels = torch.round(label.abs() * (10 ** self.frac_digit_len))
+        scaled_labels = torch.round(label.abs() * (10. ** self.frac_digit_len))
         digit_labels = (scaled_labels.unsqueeze(1) // powers_of_ten) % 10
 
         loss_per_digit = F.cross_entropy(

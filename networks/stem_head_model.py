@@ -1,5 +1,5 @@
 from os import PathLike
-from typing import Any, Dict, Optional, Type, Union, override
+from typing import Any, Dict, Optional, Type, Union, cast, override
 
 import torch
 from transformers import (
@@ -118,13 +118,13 @@ def create_stem_head_model(superclass: Type[GPT2LMHeadModel], args: BaseArgument
                         device=device_str,
                         add_reciprocal=args.add_reciprocal,
                         combination_method=args.combine_strategy,
-                        loss_type=args.num_loss_type
+                        loss_type=args.num_loss_type,
+                        number_head_type=args.num_head_type,
+                        precision_type=cast(torch.dtype, args.precision_type)
                     )
                 case "fone":
                     self.num_embedding_module = FoNE(
                         n_embd=config.n_embd,
-                        int_digit_len=15 if args.float_type == "float64" else 8,
-                        frac_digit_len=15 if args.float_type == "float64" else 8,
                         add_linear=False,
                         period_base_list=[args.base]
                     )

@@ -13,7 +13,7 @@ import torch
 from transformers.modeling_outputs import CausalLMOutputWithCrossAttentions
 
 from networks.number_embedding_modules.abc_embedding import ABCEmbedding
-from utils.enums import COMBINE_STRATEGY
+from utils.enums import COMBINE_STRATEGY, NUMBER_HEAD
 
 
 class Float64Embedding(ABCEmbedding):
@@ -34,6 +34,8 @@ class Float64Embedding(ABCEmbedding):
             combination_method: COMBINE_STRATEGY="sum",
             loss_type: str="bce",
             frequency_weight_slope: float=0.,
+            number_head_type: NUMBER_HEAD=NUMBER_HEAD.LINEAR,
+            precision_type: torch.dtype=torch.float64,
         ):
         """
         Initialize the Float64Embedding module.
@@ -52,31 +54,56 @@ class Float64Embedding(ABCEmbedding):
         self.device_str = str(device).split(":")[0]
         self.add_reciprocal = add_reciprocal
         self.loss_type = loss_type
+        self.precision_type = precision_type
         
         # Calculate embedding dimensions first
-        self.freq_size = 64
+        if self.precision_type == torch.float64:
+            self.freq_size = 64
+        elif self.precision_type == torch.float32:
+            self.freq_size = 32
+        elif self.precision_type in [torch.float16, torch.bfloat16]:
+            self.freq_size = 16
+        else:
+            raise ValueError(f"Unsupported precision type: {self.precision_type}")
         self.embedding_size = self.freq_size * (2 if self.add_reciprocal else 1)
         self.output_size = self.freq_size
         self.pad_size = n_embed - self.embedding_size
         self.combination_method: COMBINE_STRATEGY = combination_method
-        
+
+        num_head_list: list = []
+        match number_head_type:
+            case NUMBER_HEAD.LINEAR:
+                num_head_list.append(torch.nn.Linear(n_embed, self.output_size))
+            case NUMBER_HEAD.MLP:
+                num_head_list.append(torch.nn.Linear(n_embed, n_embed//2))
+                num_head_list.append(torch.nn.ReLU())
+                num_head_list.append(torch.nn.Linear(n_embed//2, self.output_size))
+            case NUMBER_HEAD.NONE:
+                class ChannelSlice(torch.nn.Module):
+                    def __init__(self, start=0, end=-1):
+                        super().__init__()
+                        self.start = start
+                        self.end = end
+                    def forward(self, x):
+                        return x[:, self.start:self.end]
+                num_head_list.append(ChannelSlice(0, self.output_size))
+    
         match loss_type:
             case "bce":
-                self.num_head = torch.nn.Linear(n_embed, self.output_size)
                 self.loss_func = torch.nn.BCEWithLogitsLoss(reduction="none")
             case "mse":
-                self.num_head = torch.nn.Sequential(
-                    torch.nn.Linear(n_embed, self.output_size),
-                    torch.nn.Sigmoid(),
-                )
+                num_head_list.append(torch.nn.Sigmoid())
                 self.loss_func = torch.nn.MSELoss(reduction="none")
             case _:
                 raise ValueError(f"Unsupported loss type: {loss_type}")
             
+        self.num_head: torch.nn.Module = torch.nn.Sequential(*num_head_list)
+        # self.num_head = torch.nn.Linear(n_embed, self.output_size)
+            
         if self.combination_method == "weighted" or self.combination_method == "weighted_sum":
             self.bit_weight_matrix = torch.nn.Linear(self.embedding_size, n_embed, bias=False)
         
-        self.float64_bit_shifts: torch.LongTensor = torch.arange(63, -1, -1, device=device, dtype=torch.int64)
+        self.float64_bit_shifts: torch.LongTensor = torch.arange(self.freq_size-1, -1, -1, device=device, dtype=torch.int64)
         self.freq_loss_weights = torch.linspace(1, 1+self.freq_size*frequency_weight_slope, self.freq_size, device=device, dtype=torch.float32).unsqueeze(0)
         self.freq_loss_weights = self.freq_loss_weights - self.freq_loss_weights.min() + 1
         self.freq_loss_weights = self.freq_loss_weights / self.freq_loss_weights.mean()
@@ -112,7 +139,8 @@ class Float64Embedding(ABCEmbedding):
         exponents = self.float64_bit_shifts
         weights = torch.tensor(1, dtype=torch.int64, device=self.device) << exponents
         reconstructed_int = torch.sum(bits_int64 * weights, dim=-1)
-        return reconstructed_int.view(torch.float64)
+        int_type = torch.int64 if self.precision_type == torch.float64 else torch.int32
+        return reconstructed_int.to(dtype=int_type).view(self.precision_type).to(torch.float64)
     
     @override
     def forward(self, x: torch.DoubleTensor) -> torch.FloatTensor | torch.BFloat16Tensor:

@@ -137,8 +137,9 @@ class RopeGPT2Attention(GPT2Attention):
 
         ##############################################
         # QK-norm
-        query_states = torch.nn.functional.rms_norm(query_states, (query_states.size(-1),))
-        key_states = torch.nn.functional.rms_norm(key_states, (key_states.size(-1),))
+        norm_func = torch.nn.functional.rms_norm if self.config.norm_class == "rms" else torch.nn.functional.layer_norm
+        query_states = norm_func(query_states, (query_states.size(-1),)).to(query_states.dtype)
+        key_states = norm_func(key_states, (key_states.size(-1),)).to(query_states.dtype)
         ##############################################
 
         ##############################################
@@ -209,13 +210,15 @@ class RopeGPT2Block(GPT2Block):
         hidden_size = config.hidden_size
         inner_dim = config.n_inner if config.n_inner is not None else 4 * hidden_size
 
-        self.ln_1 = nn.RMSNorm(hidden_size)
+        
+        norm_class = nn.RMSNorm if config.norm_class=="rms" else nn.LayerNorm
+        self.ln_1 = norm_class(hidden_size)
         self.attn: RopeGPT2Attention = RopeGPT2Attention(config=config, layer_idx=layer_idx)
-        self.ln_2 = nn.RMSNorm(hidden_size)
+        self.ln_2 = norm_class(hidden_size)
 
         if config.add_cross_attention:
             self.crossattention: RopeGPT2Attention = RopeGPT2Attention(config=config, is_cross_attention=True, layer_idx=layer_idx)
-            self.ln_cross_attn = nn.RMSNorm(hidden_size, eps=config.layer_norm_epsilon)
+            self.ln_cross_attn = norm_class(hidden_size, eps=config.layer_norm_epsilon)
 
         self.mlp = GPT2MLP(inner_dim, config)
 
@@ -310,7 +313,8 @@ class RopeGPT2Model(GPT2Model):
         )
         del self.wpe
         self.wpe = lambda x: 0  # Dummy positional embeddings
-        self.ln_f = nn.RMSNorm(config.hidden_size)
+        norm_class = nn.RMSNorm if config.norm_class=="rms" else nn.LayerNorm
+        self.ln_f = norm_class(config.hidden_size)
         self.post_init()
 
     @override

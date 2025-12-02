@@ -32,10 +32,12 @@ class TrainArgumentParser(BaseArgumentParser):
     loss_weight_momentum: float = 1 # Momentum for loss weight update. By default, 100% of the previous loss weight is retained
     task_loss_exponent: float = -1 # Exponent for the generaized mean objective. By default, the exponent is set to -1, which is equivalent to the harmonic mean
     reset_loss_after_warmup: bool = False # Reset loss weights after warmup. By default, the loss weights are not reset
+    task_ratio_cap: list[float] = None # Maximum task sampling ratio for each task. If set, the task sampling ratios are capped at the specified values
     online_weighting_warmup_tokens: int = 96*384*1024 # Number of steps to warmup the online weighting. By default, no warmup is used
     num_loss_weight: float = 10     # Number of loss weights to use
     frequency_weight_slope: float = 0. # Slope of the linear frequency weight. By default, no frequency weighting is used
     deterministic: bool = False # Use deterministic computation. This may slow down training, but ensures reproducibility
+    optimizer: Literal["AdamW", "Muon"] = "Muon" # Optimizer to use
     
     val_set_paths: list[Path]=None           # List of paths to validation csv files
     val_cache_paths: list[Path] = None # Paths to cache files. If set, the cache files are used instead of the validation files
@@ -64,6 +66,7 @@ class TrainArgumentParser(BaseArgumentParser):
     continue_from: Optional[Path] = None    # Path to the save dir of a pretrained model to continue training. Note that the latest checkpoint is being used.
     from_pretrained: Optional[Path] = None  # Path to the save dir of a pretrained model to start training from scratch
     lr: float = 0.02              # Learning rate
+    adamW_lr: float = 0.02     # Baser learning rate for other parameters whe using AdamW optimizer
     effective_batch_size: int = 384 # Batch size including gradient accumulation
     weight_decay: float = 0.    # Weight decay
     lr_scheduler_type: Literal["cosine", "plateau"] = "cosine"       # Learning rate scheduler type
@@ -166,6 +169,16 @@ class TrainArgumentParser(BaseArgumentParser):
             self.train_set_ratios = [1.0 / num_tasks if d!= DATASET_CURRICULUM_TYPE.ENDGAME else 0 for d in self.train_dataset_curriculum_types]
         else:
             assert len(self.train_set_ratios) == len(self.train_set_paths), f"Number of training set tokens ({len(self.train_set_ratios)}) must be equal to the number of training sets ({len(self.train_set_paths)})"
+
+        if self.task_ratio_cap is not None:
+            assert len(self.task_ratio_cap) == len(self.train_set_paths), f"Number of task ratio caps ({len(self.task_ratio_cap)}) must be equal to the number of training sets ({len(self.train_set_paths)})"
+            for cap in self.task_ratio_cap:
+                assert 0 < cap <= 1, f"Each task ratio cap must be in (0,1], got {cap}"
+            total_cap = sum(self.task_ratio_cap)
+            assert total_cap >= 1.0, f"Sum of task ratio caps must be at least 1.0, got {total_cap}"
+            self.task_ratio_cap = torch.tensor(self.task_ratio_cap, dtype=torch.float32)
+        else:
+            self.task_ratio_cap = torch.ones(len(self.train_set_paths), dtype=torch.float32)
 
         if self.train_set_tokens is None:
             self.train_set_tokens = [-1] * len(self.train_set_paths)
